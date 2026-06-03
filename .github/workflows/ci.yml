@@ -29,8 +29,10 @@ jobs:
       - name: Run tests
         run: pytest -q
 
-      - name: Validate example charter
-        run: nextraci validate examples/sprout/charter.yaml
+      - name: Validate example charters
+        run: |
+          nextraci validate examples/sprout/charter.yaml
+          nextraci validate examples/relay/charter.yaml
 
       - name: Validate the project's own governance charter
         run: nextraci validate governance/charter.yaml

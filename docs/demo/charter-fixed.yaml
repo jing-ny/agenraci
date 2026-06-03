@@ -1,0 +1,36 @@
+# The same charter, fixed: A2 now has exactly one accountable role (the reviewer
+# owns what enters main; the builder is merely responsible for doing the merge).
+
+project: demo
+
+roles:
+  - lead
+  - builder
+  - reviewer
+
+members:
+  - { name: ada,  type: human, role: lead }
+  - { name: cody, type: agent, role: builder,  model: claude-opus-4-8 }
+  - { name: vera, type: agent, role: reviewer, model: claude-opus-4-8 }
+
+capabilities:
+  lead:     { grant: [set_roadmap] }
+  builder:  { grant: [edit_code, merge] }
+  reviewer: { grant: [block_merge], deny: [edit_code, merge] }
+
+actions:
+
+  A1_set_roadmap:
+    responsible: lead
+    accountable: lead
+    capabilities: [set_roadmap]
+
+  A2_ship_code:
+    responsible: builder
+    accountable: reviewer              # ← exactly one accountable
+    consulted:   [reviewer]
+    capabilities: [edit_code, merge, block_merge]
+    suggestion_route:
+      from: reviewer
+      to:   builder
+      as:   change_request

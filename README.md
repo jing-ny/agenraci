@@ -1,6 +1,9 @@
 # nextRACI — who's allowed to do what, and who's accountable, on a team of humans and AI agents
 
 [![CI](https://github.com/jing-ny/nextraci/actions/workflows/ci.yml/badge.svg)](https://github.com/jing-ny/nextraci/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/nextraci.svg)](https://pypi.org/project/nextraci/)
+[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > When an AI agent does something on your team — ships code, sends a message,
 > spends money — and no human pressed the button, **who is accountable?**
@@ -29,6 +32,26 @@ an approval step that could quietly stall forever.
 pip install nextraci
 nextraci validate examples/sprout/charter.yaml
 ```
+
+## See it catch a gap
+
+A charter where two roles both think they're accountable for shipping code — the
+checker catches it (rule **R1**), and the one-line fix passes:
+
+<!-- demo-gif: after `vhs docs/demo/demo.tape`, embed ![demo](docs/demo/demo.gif) here -->
+
+```text
+$ nextraci validate docs/demo/charter-broken.yaml
+✗ R1 single accountable
+    - A2_ship_code: has 2 accountable roles (builder, reviewer) — exactly one is required.
+FAIL — 1 issue(s) found.
+
+$ nextraci validate docs/demo/charter-fixed.yaml
+✓ R1 single accountable
+PASS — charter is a valid operating constitution.
+```
+
+Full walkthrough + a recordable GIF script: [`docs/demo/`](docs/demo/).
 
 ## What nextRACI is (and isn't) yet
 
@@ -121,7 +144,9 @@ nextraci/
 ├── README.md            # this file
 ├── SPEC.md              # the three questions, RACI rules, file format, checker rules
 ├── nextraci/            # the Python package (schema, checker, cli, connectors)
-├── examples/sprout/     # a complete, valid worked example
+├── governance/          # nextRACI's own charter — the project governs itself
+├── examples/sprout/     # a complete worked example (2 humans + 6 agents)
+├── examples/relay/      # an all-agent worked example (5 agents, 0 humans)
 ├── templates/           # a blank, commented charter
 └── tests/               # one test per rule + known-good / known-bad charters
 ```

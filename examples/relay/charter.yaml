@@ -1,0 +1,88 @@
+# Relay — an all-agent customer-support triage team.
+#
+# A complete, valid nextRACI charter where EVERY role-holder is an AI agent — no
+# humans in the member list. The point: agents are first-class role-holders, and an
+# agent can be the single Accountable party for an action and hold the break-glass
+# key. (In production you would usually keep a human as the ultimate break-glass
+# authority; this example deliberately shows the all-agent extreme.)
+#
+# Validate me:  nextraci validate examples/relay/charter.yaml
+
+project: relay
+
+# --- The role library --------------------------------------------------------
+roles:
+  - lead        # plans, sets support policy, breaks ties, owns escalation
+  - triager     # classifies & prioritizes incoming tickets
+  - responder   # drafts and sends replies
+  - researcher  # pulls knowledge-base facts; does NOT decide or send
+  - auditor     # correctness/safety gate; can block a send; does NOT send
+
+# --- The team: every member is an AI agent -----------------------------------
+members:
+  - { name: atlas,  type: agent, role: lead,       model: claude-opus-4-8 }
+  - { name: sortie, type: agent, role: triager,    model: claude-haiku-4-5 }
+  - { name: quill,  type: agent, role: responder,  model: claude-opus-4-8 }
+  - { name: sage,   type: agent, role: researcher, model: claude-opus-4-8 }
+  - { name: vera,   type: agent, role: auditor,    model: claude-opus-4-8 }
+
+# --- Permissions: what each role may touch -----------------------------------
+capabilities:
+  lead:       { grant: [set_policy, escalate] }
+  triager:    { grant: [classify],   deny: [send_reply] }
+  responder:  { grant: [send_reply] }
+  researcher: { grant: [read_kb],    deny: [send_reply, classify] }
+  auditor:    { grant: [block_send], deny: [send_reply, classify] }
+
+# --- Action types: RACI per type, exactly one Accountable each ----------------
+actions:
+
+  B1_set_support_policy:
+    responsible: lead
+    accountable: lead
+    consulted:   [auditor, researcher]
+    informed:    [triager, responder]
+    capabilities: [set_policy]
+
+  B2_classify_ticket:
+    responsible: triager
+    accountable: triager              # an agent owns triage outright
+    consulted:   [researcher]
+    informed:    [lead]
+    capabilities: [classify]
+    suggestion_route:                 # researcher can't classify, so a hint gets a route
+      from: researcher
+      to:   triager
+      as:   reclassify_hint
+
+  B3_research_answer:
+    responsible: researcher
+    accountable: researcher
+    informed:    [responder]
+    capabilities: [read_kb]
+
+  B4_draft_and_send_reply:
+    responsible: responder
+    accountable: auditor              # the auditor outranks the responder on send
+    consulted:   [researcher]
+    informed:    [lead]
+    capabilities: [send_reply, block_send]
+    suggestion_route:                 # researcher can't send, so a fact fix gets a route
+      from: researcher
+      to:   responder
+      as:   fact_correction
+    gate:
+      approver: auditor
+      on_timeout: block               # never auto-sends an unreviewed reply
+      break_glass: { who: lead, condition: vip_or_outage, requires_after_review: true }
+
+  B5_escalate_to_human:
+    responsible: lead
+    accountable: lead                 # an agent decides when to pull in a human
+    consulted:   [auditor]
+    informed:    [triager, responder]
+    capabilities: [escalate]
+    gate:
+      approver: lead
+      on_timeout: block
+      break_glass: { who: lead, condition: legal_or_safety, requires_after_review: true }
