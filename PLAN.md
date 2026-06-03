@@ -16,12 +16,12 @@ one strong public moment — without over-promising the v0.2 runtime control pla
   Core); nextRACI inherits it. Confirm `next` is safe, or switch to Plan B `agenraci`,
   **before** Show HN — renaming after launch is costly.
 
-## Phase 0 — Pre-launch polish (Week 1)
-- [ ] CI: GitHub Actions (pytest + validate) on 3.11/3.12 + README badge — [#1](https://github.com/jing-ny/nextraci/issues/1)
-- [ ] All-agent worked example (every role-holder is an AI agent) — [#3](https://github.com/jing-ny/nextraci/issues/3)
-- [ ] Demo asciinema/GIF of validate catching an R1 gap *(highest-leverage asset)* — [#4](https://github.com/jing-ny/nextraci/issues/4)
-- [ ] README badges + GitHub topics & description — [#5](https://github.com/jing-ny/nextraci/issues/5)
-- [ ] Seed 3-5 good first issues — [#6](https://github.com/jing-ny/nextraci/issues/6)
+## Phase 0 — Pre-launch polish (Week 1) ✅ done
+- [x] CI: GitHub Actions (pytest + validate) on 3.11/3.12 + README badge — [#1](https://github.com/jing-ny/nextraci/issues/1)
+- [x] All-agent worked example (`examples/relay`, 5 agents 0 humans) — [#3](https://github.com/jing-ny/nextraci/issues/3)
+- [x] Demo: charter pair + VHS tape + walkthrough in `docs/demo/` — [#4](https://github.com/jing-ny/nextraci/issues/4) · *one step left: run `vhs docs/demo/demo.tape` to render the GIF and swap it into the README placeholder*
+- [x] README badges + GitHub topics & description — [#5](https://github.com/jing-ny/nextraci/issues/5)
+- [x] Seed good first issues — [#6](https://github.com/jing-ny/nextraci/issues/6) → opened [#10](https://github.com/jing-ny/nextraci/issues/10) [#11](https://github.com/jing-ny/nextraci/issues/11) [#12](https://github.com/jing-ny/nextraci/issues/12)
 
 ## Phase 1 — Essay + assets (Week 1-2)
 - [ ] Launch essay `docs/why-nextraci.md` (~800-1200 words, broad audience) — [#7](https://github.com/jing-ny/nextraci/issues/7)
