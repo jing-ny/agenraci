@@ -163,6 +163,37 @@ nextraci/
 - **v0.4 — `nextraci lint --explain`** that names each gap or conflict in plain
   language and suggests a fix.
 
+## FAQ
+
+**Isn't this just RBAC?**
+No. Permission ("what may you touch") is only *one* of nextRACI's three axes.
+Role-based access control answers that one question and stops there. nextRACI also
+separates **Function** (what you do) and **Authority** (whose call wins in a
+conflict), and — the part RBAC has no concept of — it centers a single
+**accountable** owner for each *type* of action. RBAC can tell you an agent is
+allowed to call `deploy`; it can't tell you who answers for the deploy, who had to
+sign off first, or what should happen if that approver goes dark. A charter can be
+denied a permission yet still be accountable for the outcome — those are different
+axes, and conflating them is exactly the gap nextRACI exists to close.
+
+**Why not just use HumanLayer / LangGraph / CrewAI?**
+Use them — they're solving a different layer. Those frameworks *run* agents and can
+pause them to wait for a human sign-off. nextRACI sits one level up: it's the file
+that says, *for this specific team*, who is allowed to do what, who owns each
+outcome, and who breaks a tie — independent of which runtime you use. The charter
+is framework-agnostic on purpose. Turning a charter into the live gates those tools
+enforce (starting with a HumanLayer connector) is on the roadmap; today nextRACI
+defines and checks the rules those runtimes would enforce.
+
+**Is this vaporware?**
+No. v0.1 *writes and checks* a charter today: a real file format, an automatic
+checker with rules R1–R5, two worked examples, and a template — all of which you
+can run from a clone of this repo (`pip install -e .` then
+`nextraci validate examples/sprout/charter.yaml`). What it does
+*not* do yet is intercept actions or enforce approvals at runtime; that's stated
+plainly in [What nextRACI is (and isn't) yet](#what-nextraci-is-and-isnt-yet)
+above and tracked on the roadmap, not dressed up as a current capability.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
