@@ -93,3 +93,39 @@ actions:
       approver: orchestrator
       on_timeout: proceed_if_low_risk
       break_glass: { who: orchestrator, condition: metric_alarm, requires_after_review: false }
+
+  # --- High-stakes async actions: gate them so they never auto-proceed -----
+  example_deploy:
+    responsible: engineer
+    accountable: engineer
+    consulted:   [reviewer]            # reviewer is denied deploy...
+    informed:    [orchestrator, monitor]
+    capabilities: [deploy]
+    suggestion_route:                  # ...so a deploy objection has a route
+      from: reviewer
+      to:   engineer
+      as:   deploy_objection
+    gate:
+      approver: engineer
+      on_timeout: block                # not low_risk → never auto-deploys
+      break_glass: { who: engineer, condition: sev1_incident, requires_after_review: true }
+
+  example_spend_money:
+    responsible: orchestrator          # anyone may request; a human approves
+    accountable: orchestrator
+    consulted:   [engineer]
+    capabilities: [spend]
+    gate:
+      approver: orchestrator
+      on_timeout: block
+      break_glass: { who: orchestrator, condition: billing_outage, requires_after_review: true }
+
+  example_contact_users:
+    responsible: orchestrator          # an agent may draft; a human is accountable
+    accountable: orchestrator
+    consulted:   [domain_expert]
+    capabilities: [contact_users]
+    gate:
+      approver: orchestrator
+      on_timeout: block
+      break_glass: { who: orchestrator, condition: urgent_outage_notice, requires_after_review: true }
