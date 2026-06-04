@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from pathlib import Path
 
 import typer
@@ -30,6 +31,27 @@ _RESET = "\033[0m"
 
 def _echo(msg: str = "") -> None:
     typer.echo(msg)
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        try:
+            ver = _pkg_version("nextraci")
+        except PackageNotFoundError:  # running from a source tree, not installed
+            ver = "0.0.0+unknown"
+        _echo(f"nextraci {ver}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _root(
+    version: bool = typer.Option(
+        False, "--version", "-V",
+        help="Show the nextRACI version and exit.",
+        is_eager=True, callback=_version_callback,
+    ),
+) -> None:
+    """nextRACI — validate and compile a team's operating constitution."""
 
 
 @app.command()
