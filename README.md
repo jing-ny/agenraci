@@ -33,6 +33,10 @@ pip install nextraci
 nextraci validate examples/sprout/charter.yaml
 ```
 
+New here? Start with the essay: [**Why nextRACI**](docs/why-nextraci.md) — the
+accountability gap, why classic RACI breaks under agentic AI, and how this fits
+ISO/IEC 42001 and the EU AI Act.
+
 ## See it catch a gap
 
 A charter where two roles both think they're accountable for shipping code — the
