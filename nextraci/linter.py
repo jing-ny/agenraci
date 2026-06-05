@@ -1,4 +1,4 @@
-"""The nextRACI linter: rules R1-R5 active, R6 stubbed for v0.1.
+"""The nextRACI linter: rules R1-R6 active.
 
 Each rule is a pure function ``rule(charter) -> list[LintError]``. ``lint()``
 runs them all and returns every error found. Errors are structured and name the
@@ -180,21 +180,78 @@ def rule_r5_low_risk_gating(charter: Charter) -> list[LintError]:
 
 
 # --------------------------------------------------------------------------- #
-# R6 - acyclic authority (STUB for v0.1)
+# R6 - acyclic authority
 # --------------------------------------------------------------------------- #
-def rule_r6_acyclic_authority(charter: Charter) -> list[LintError]:
-    """STUB. Always passes in v0.1.
+def _authority_edges(charter: Charter) -> dict[str, set[str]]:
+    """Build the escalation graph: ``approver -> escalate_target`` per gate.
 
-    R6 will assert that the global veto/escalation graph has no cycles (no
-    infinite tie-break loops). In v0.1 authority is expressed *only* via each
-    action's ``accountable`` field — there is no separate global authority graph
-    to check yet, so this rule is intentionally a no-op.
-
-    TODO(v0.2): once a global veto/escalation graph exists, build the directed
-    graph and detect cycles here.
+    A gate with ``on_timeout: escalate_to:<role>`` says "if the approver does not
+    act, the decision passes up to <role>." Collecting every such edge across all
+    gates yields the team's *who-defers-to-whom on timeout* graph. A cycle in it
+    means a decision can escalate forever without anyone able to finally settle
+    it. Authority that is expressed only via ``accountable`` (no escalation)
+    contributes no edges and so can never form a loop.
     """
-    _ = charter  # unused until v0.2
-    return []
+    edges: dict[str, set[str]] = {}
+    for action in charter.actions.values():
+        gate = action.gate
+        if gate is None:
+            continue
+        target = gate.escalate_target
+        if target is None:
+            continue
+        edges.setdefault(gate.approver, set()).add(target)
+    return edges
+
+
+def rule_r6_acyclic_authority(charter: Charter) -> list[LintError]:
+    """The escalation graph has no cycles (no infinite tie-break loops).
+
+    Authority on timeout is expressed by ``on_timeout: escalate_to:<role>``.
+    Following those edges must always terminate; if escalation can return to a
+    role it already passed through (including escalating to itself), no decision
+    can ever be finally made. We report each distinct cycle once, naming the loop.
+    """
+    edges = _authority_edges(charter)
+
+    cycles: list[tuple[str, ...]] = []
+    seen_cycles: set[frozenset[str]] = set()
+    WHITE, GREY, BLACK = 0, 1, 2
+    color: dict[str, int] = {}
+
+    def visit(node: str, stack: list[str]) -> None:
+        color[node] = GREY
+        stack.append(node)
+        for nxt in sorted(edges.get(node, ())):
+            if color.get(nxt, WHITE) == GREY:
+                # Found a back-edge: the cycle is stack[index(nxt):] + [nxt].
+                loop = stack[stack.index(nxt):]
+                key = frozenset(loop)
+                if key not in seen_cycles:
+                    seen_cycles.add(key)
+                    cycles.append(tuple(loop))
+            elif color.get(nxt, WHITE) == WHITE:
+                visit(nxt, stack)
+        stack.pop()
+        color[node] = BLACK
+
+    for start in sorted(edges):
+        if color.get(start, WHITE) == WHITE:
+            visit(start, [])
+
+    errors: list[LintError] = []
+    for loop in cycles:
+        chain = " -> ".join((*loop, loop[0]))
+        target = loop[0] if len(loop) == 1 else ", ".join(sorted(loop))
+        errors.append(
+            LintError(
+                "R6",
+                target,
+                f"authority escalation forms a cycle ({chain}); a decision could "
+                "escalate forever without anyone able to settle it.",
+            )
+        )
+    return errors
 
 
 RULES = [
@@ -203,7 +260,7 @@ RULES = [
     ("R3", "no contradiction", rule_r3_no_contradiction),
     ("R4", "gate completeness", rule_r4_gate_completeness),
     ("R5", "low-risk gating", rule_r5_low_risk_gating),
-    ("R6", "acyclic authority (stub)", rule_r6_acyclic_authority),
+    ("R6", "acyclic authority", rule_r6_acyclic_authority),
 ]
 
 

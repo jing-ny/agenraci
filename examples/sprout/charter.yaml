@@ -1,6 +1,6 @@
 # Sprout — a houseplant-care reminder app.
 #
-# A complete, valid nextRACI charter that exercises every active rule (R1-R5).
+# A complete, valid nextRACI charter that exercises every active rule (R1-R6).
 # Team: 2 humans + 6 agents. See ./README.md for the narrative.
 #
 # Validate me:  nextraci validate examples/sprout/charter.yaml

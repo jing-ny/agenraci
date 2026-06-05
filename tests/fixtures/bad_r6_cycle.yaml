@@ -1,0 +1,49 @@
+# Trips R6 only (two-role cycle): merge escalates reviewer -> orchestrator and
+# watch escalates orchestrator -> reviewer, so a stalled decision can bounce
+# between them forever. A cycle needs two edges, so two on_timeout lines differ
+# from good_minimal; nothing else changes.
+project: test-bad-r6-cycle
+
+roles: [orchestrator, engineer, reviewer, monitor]
+
+members:
+  - { name: you,   type: human, role: orchestrator }
+  - { name: dev,   type: human, role: engineer }
+  - { name: vera,  type: agent, role: reviewer, model: claude-opus-4-8 }
+  - { name: pulse, type: agent, role: monitor,  model: claude-haiku-4-5 }
+
+capabilities:
+  engineer: { grant: [edit_code, merge] }
+  reviewer: { grant: [block_merge], deny: [edit_code] }
+  monitor:  { grant: [read_analytics] }
+
+actions:
+
+  do_work:
+    responsible: engineer
+    accountable: engineer
+    consulted:   [reviewer]
+    capabilities: [edit_code]
+    suggestion_route:
+      from: reviewer
+      to:   engineer
+      as:   objection
+
+  merge:
+    responsible: engineer
+    accountable: reviewer
+    capabilities: [merge, block_merge]
+    gate:
+      approver: reviewer
+      on_timeout: escalate_to:orchestrator   # ← R6: reviewer -> orchestrator
+      break_glass: { who: engineer, condition: sev1, requires_after_review: true }
+
+  watch:
+    responsible: monitor
+    accountable: orchestrator
+    capabilities: [read_analytics]
+    low_risk: true
+    gate:
+      approver: orchestrator
+      on_timeout: escalate_to:reviewer       # ← R6: orchestrator -> reviewer (loop)
+      break_glass: { who: orchestrator, condition: alarm, requires_after_review: false }
