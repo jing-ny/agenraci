@@ -55,9 +55,9 @@ change author.
 ## Checker rules (keep code ⇄ docs in sync)
 
 R1 single accountable · R2 coverage · R3 no contradiction · R4 gate completeness ·
-R5 low-risk gating · R6 acyclic authority (**planned, v0.2 stub**). Rule behavior in
-`nextraci/linter.py` is the source of truth; README/SPEC must match it. Each active
-rule should have a test (one test per rule is the norm).
+R5 low-risk gating · R6 acyclic authority (gate `escalate_to` edges form no cycle).
+Rule behavior in `nextraci/linter.py` is the source of truth; README/SPEC must match
+it. Each active rule should have a test (one test per rule is the norm).
 
 ## Dev quickstart
 

@@ -23,12 +23,13 @@ A charter keeps three concerns independent. Collapsing them is the source of mos
 |------|---------------------|------------------------------|
 | **Function** | What do you *do*? | the `roles` library + each action's R/A/C/I |
 | **Permission** | What may you *touch*? | `capabilities` (per role: `grant` / `deny`) |
-| **Authority** | Whose call *wins* on conflict? | each action's `accountable` (v0.1) |
+| **Authority** | Whose call *wins* on conflict? | each action's `accountable`, plus gate `on_timeout: escalate_to:<role>` |
 
 They are independent: a role can be **Accountable** for a fact, **denied** code
 access, yet able to **block** a merge (by being the `accountable`/approver on the
-merge action). In v0.1 authority is expressed **only** via `accountable`; a
-separate global veto/escalation graph is deferred to v0.2 (see R6).
+merge action). Authority lives in each action's `accountable` and in the
+`escalate_to` edges of gates; R6 checks that those escalation edges never form a
+cycle (no infinite tie-break loop).
 
 ---
 
@@ -169,9 +170,14 @@ action/role.
   a capability that action touches must have a `suggestion_route` *from* it.
 - **R5 — low-risk gating.** An action may use `on_timeout: proceed_if_low_risk`
   **only if** it is tagged `low_risk: true`; otherwise it's an error.
-- **R6 — acyclic authority.** *Stub in v0.1.* Will assert the global
-  veto/escalation graph has no cycles once that graph exists (v0.2). The stub
-  always passes.
+- **R6 — acyclic authority.** The escalation graph has no cycles. Every gate
+  whose `on_timeout` is `escalate_to:<role>` adds an edge `approver → <role>`
+  ("if the approver stalls, the decision passes up to this role"). Following those
+  edges must always terminate; if escalation can return to a role already on the
+  path — including a gate that escalates to its own approver — no decision can
+  ever be finally settled, and R6 reports the loop. Charters that express
+  authority only via `accountable` (no `escalate_to`) contribute no edges and so
+  always pass.
 
 ---
 
@@ -190,9 +196,10 @@ The CLI refuses to compile a charter that fails any linter rule.
 ## 9. Resolved design decisions (v0.1)
 
 1. **Monitor is its own role** — kept, not merged into Engineer.
-2. **Authority via per-action `accountable` only** — one escalation case
-   ("reviewer beats orchestrator on merge") is `accountable: reviewer`; a global
-   graph + real R6 is deferred to v0.2.
+2. **Authority via per-action `accountable`, with `escalate_to` for timeouts** —
+   one escalation case ("reviewer beats orchestrator on merge") is
+   `accountable: reviewer`; gate timeouts may escalate via `escalate_to:<role>`,
+   and R6 checks the resulting escalation graph is acyclic.
 3. **`proceed_if_low_risk` is a guarded opt-in** — legal only with
    `low_risk: true` (R5). Default is `block`.
 4. **Roles are first-class, standalone** — inline for v0.1, but modelled for a
@@ -201,5 +208,6 @@ The CLI refuses to compile a charter that fails any linter rule.
 ### Still open (revisit at v0.2)
 
 - Whether `low_risk` should attach to **capabilities** rather than whole actions.
-- The format of the global authority graph (and turning R6 into a real check).
+- A richer authority graph beyond gate `escalate_to` edges (e.g. standing veto
+  relations independent of any single gate).
 - Shared role-library import mechanics (a `roles.yaml` referenced by many charters).

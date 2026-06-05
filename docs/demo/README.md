@@ -29,7 +29,7 @@ nextRACI charter: demo  (docs/demo/charter-broken.yaml)
 ✓ R3 no contradiction
 ✓ R4 gate completeness
 ✓ R5 low-risk gating
-- R6 acyclic authority (stub)
+✓ R6 acyclic authority
 
 FAIL — 1 issue(s) found.
 
@@ -42,7 +42,7 @@ nextRACI charter: demo  (docs/demo/charter-fixed.yaml)
 ✓ R3 no contradiction
 ✓ R4 gate completeness
 ✓ R5 low-risk gating
-- R6 acyclic authority (stub)
+✓ R6 acyclic authority
 
 PASS — charter is a valid operating constitution.
 ```

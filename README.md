@@ -89,7 +89,7 @@ nextRACI keeps them separate:
 |-----------------|-----------------------------------|---------|
 | **Function**    | What do you *do*?                 | Orchestrate, Build, Advise, Investigate, Review, Watch |
 | **Permission**  | What may you *touch*?             | `edit_code`, `merge`, `deploy`, `spend`, … granted **or explicitly denied** |
-| **Authority**   | Whose call *wins* in a conflict?  | In v0.1, expressed via each action's `accountable` |
+| **Authority**   | Whose call *wins* in a conflict?  | Each action's `accountable`, plus gate `escalate_to` for timeouts |
 
 The proof they're separate: a **domain expert can be _accountable_ for a fact,
 _denied_ the right to touch code, yet able to _block_ a merge on correctness
@@ -127,7 +127,7 @@ backdoor for an agent to act unsupervised.
 | **R3** | no contradiction — no role both grants and denies the same permission |
 | **R4** | gate completeness — every approval step has a timeout rule + emergency path; every blocking `deny` has a `suggestion_route` |
 | **R5** | low-risk gating — `proceed` on timeout only on an action marked low-risk |
-| **R6** | acyclic authority — **planned** (v0.2): confirm the "who outranks whom" map has no impossible loops |
+| **R6** | acyclic authority — gate `escalate_to` timeouts never form a loop, so a decision can't escalate forever without anyone able to settle it |
 
 ## CLI
 
@@ -153,11 +153,11 @@ nextraci/
 
 ## Roadmap
 
-- **v0.1 — write it and check it.** The charter format, the checker (R1–R5), the
+- **v0.1 — write it and check it.** The charter format, the checker (R1–R6), the
   Sprout example, and a template. ← you are here
-- **v0.2 — first live connector + authority map.** A working HumanLayer connector
-  that turns a charter into real approval gates, plus a team-wide "who outranks
-  whom" map and a check that it has no impossible loops.
+- **v0.2 — first live connector.** A working HumanLayer connector that turns a
+  charter into real approval gates, plus a richer authority graph beyond gate
+  `escalate_to` edges (standing veto relations).
 - **v0.3 — LangGraph connector** + a small web view that renders the chart so
   non-engineers can read it.
 - **v0.4 — `nextraci lint --explain`** that names each gap or conflict in plain
