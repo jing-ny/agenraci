@@ -1,0 +1,48 @@
+# Trips R2 only (dead-permission arm): engineer is granted `deploy`, but no
+# action touches it. R2 has two arms — undeclared-capability (see bad_r2.yaml)
+# and dead-permission (here); this fixture covers the latter.
+project: test-bad-r2-dead
+
+roles: [orchestrator, engineer, reviewer, monitor]
+
+members:
+  - { name: you,   type: human, role: orchestrator }
+  - { name: dev,   type: human, role: engineer }
+  - { name: vera,  type: agent, role: reviewer, model: claude-opus-4-8 }
+  - { name: pulse, type: agent, role: monitor,  model: claude-haiku-4-5 }
+
+capabilities:
+  engineer: { grant: [edit_code, merge, deploy] }   # ← R2: `deploy` is dead
+  reviewer: { grant: [block_merge], deny: [edit_code] }
+  monitor:  { grant: [read_analytics] }
+
+actions:
+
+  do_work:
+    responsible: engineer
+    accountable: engineer
+    consulted:   [reviewer]
+    capabilities: [edit_code]
+    suggestion_route:
+      from: reviewer
+      to:   engineer
+      as:   objection
+
+  merge:
+    responsible: engineer
+    accountable: reviewer
+    capabilities: [merge, block_merge]
+    gate:
+      approver: reviewer
+      on_timeout: block
+      break_glass: { who: engineer, condition: sev1, requires_after_review: true }
+
+  watch:
+    responsible: monitor
+    accountable: orchestrator
+    capabilities: [read_analytics]
+    low_risk: true
+    gate:
+      approver: orchestrator
+      on_timeout: proceed_if_low_risk
+      break_glass: { who: orchestrator, condition: alarm, requires_after_review: false }

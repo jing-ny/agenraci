@@ -1,0 +1,47 @@
+# A small charter that PASSES every active rule (R1-R5). Each bad_rN.yaml in this
+# directory is this charter with exactly one thing changed to trip rule RN.
+project: test-good
+
+roles: [orchestrator, engineer, reviewer, monitor]
+
+members:
+  - { name: you,   type: human, role: orchestrator }
+  - { name: dev,   type: human, role: engineer }
+  - { name: vera,  type: agent, role: reviewer, model: claude-opus-4-8 }
+  - { name: pulse, type: agent, role: monitor,  model: claude-haiku-4-5 }
+
+capabilities:
+  engineer: { grant: [edit_code, merge] }
+  reviewer: { grant: [block_merge], deny: [edit_code] }
+  monitor:  { grant: [read_analytics] }
+
+actions:
+
+  do_work:                              # exercises R4's suggestion_route path
+    responsible: engineer
+    accountable: engineer
+    consulted:   [reviewer]             # reviewer is denied edit_code...
+    capabilities: [edit_code]
+    suggestion_route:                   # ...so its input has a route (R4 satisfied)
+      from: reviewer
+      to:   engineer
+      as:   objection
+
+  merge:
+    responsible: engineer
+    accountable: reviewer
+    capabilities: [merge, block_merge]
+    gate:
+      approver: reviewer
+      on_timeout: block
+      break_glass: { who: engineer, condition: sev1, requires_after_review: true }
+
+  watch:                                # exercises R5's low_risk path
+    responsible: monitor
+    accountable: orchestrator
+    capabilities: [read_analytics]
+    low_risk: true
+    gate:
+      approver: orchestrator
+      on_timeout: proceed_if_low_risk   # legal only because low_risk: true
+      break_glass: { who: orchestrator, condition: alarm, requires_after_review: false }
