@@ -35,7 +35,7 @@ jobs:
           nextraci validate examples/relay/charter.yaml
 
       - name: Validate the starter template
-        run: nextraci validate templates/charter.template.yaml
+        run: nextraci validate nextraci/templates/charter.template.yaml
 
       - name: Validate the project's own governance charter
         run: nextraci validate governance/charter.yaml

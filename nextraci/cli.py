@@ -79,8 +79,7 @@ def init(
               f"Pass {_BOLD}--force{_RESET} to overwrite, or choose another path.")
         raise typer.Exit(code=1)
 
-    if charter_path.parent != Path(""):
-        charter_path.parent.mkdir(parents=True, exist_ok=True)
+    charter_path.parent.mkdir(parents=True, exist_ok=True)
     charter_path.write_text(_template_text(), encoding="utf-8")
     _echo(f"{_GREEN}✓{_RESET} wrote starter charter to {_BOLD}{charter_path}{_RESET}")
     _echo(f"  Edit it, then run: {_BOLD}nextraci validate {charter_path}{_RESET}")
