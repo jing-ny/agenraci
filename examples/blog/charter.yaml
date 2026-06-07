@@ -1,0 +1,47 @@
+# blog — a small newsletter team (one step up from hello-world).
+#
+# A human editor, an AI writer, and an AI fact-checker. Still tiny, but it
+# introduces the parts hello-world leaves out: an approval *gate* with a
+# timeout rule and an emergency path, a route for a blocked-but-confident
+# actor's input, and a deliberate separation of powers — the fact-checker,
+# not the editor, owns whether a claim goes out.
+#
+# Validate it:  nextraci validate examples/blog/charter.yaml
+
+project: blog
+
+roles: [editor, writer, factchecker]
+
+members:
+  - { name: you,  type: human, role: editor }
+  - { name: Iris, type: agent, role: writer,      model: claude-opus-4-8 }
+  - { name: Cite, type: agent, role: factchecker, model: claude-opus-4-8 }
+
+capabilities:
+  writer:      { grant: [draft] }
+  factchecker: { grant: [block_publish], deny: [draft] }   # checks, never writes
+  editor:      { grant: [publish] }
+
+actions:
+
+  draft_post:
+    responsible: writer
+    accountable: editor
+    consulted: [factchecker]        # Cite is consulted but cannot draft, so...
+    capabilities: [draft]
+    suggestion_route:               # ...a wrong claim has somewhere to go (R4).
+      from: factchecker
+      to:   writer
+      as:   correction
+
+  publish_post:
+    responsible: editor             # you press publish
+    accountable: factchecker        # but Cite owns whether the claims hold up
+    capabilities: [publish, block_publish]
+    gate:
+      approver: factchecker
+      on_timeout: block             # an unchecked post never auto-publishes
+      break_glass:
+        who: editor
+        condition: legal_takedown   # you can pull a live post in an emergency
+        requires_after_review: true

@@ -49,6 +49,15 @@ def test_sprout_passes_all_active_rules():
     assert errors == [], "\n".join(str(e) for e in errors)
 
 
+_EXAMPLE_CHARTERS = sorted((ROOT / "examples").glob("*/charter.yaml"))
+
+
+@pytest.mark.parametrize("charter_path", _EXAMPLE_CHARTERS, ids=lambda p: p.parent.name)
+def test_every_shipped_example_validates_clean(charter_path):
+    errors = lint(load_charter(charter_path))
+    assert errors == [], "\n".join(str(e) for e in errors)
+
+
 # --------------------------------------------------------------------------- #
 # Each known-bad charter trips exactly one rule.
 # --------------------------------------------------------------------------- #

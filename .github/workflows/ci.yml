@@ -31,6 +31,8 @@ jobs:
 
       - name: Validate example charters
         run: |
+          nextraci validate examples/hello-world/charter.yaml
+          nextraci validate examples/blog/charter.yaml
           nextraci validate examples/sprout/charter.yaml
           nextraci validate examples/relay/charter.yaml
 

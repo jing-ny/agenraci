@@ -155,9 +155,11 @@ nextraci/
 ├── nextraci/            # the Python package (schema, checker, cli, connectors,
 │                        #   and the starter template `nextraci init` writes)
 ├── governance/          # nextRACI's own charter — the project governs itself
-├── examples/sprout/     # a complete worked example (2 humans + 6 agents)
-├── examples/relay/      # an all-agent worked example (5 agents, 0 humans)
-└── tests/               # one test per rule + known-good / known-bad charters
+├── examples/hello-world/  # the smallest meaningful charter (1 human + 1 agent)
+├── examples/blog/         # one step up: a gate + separation of powers (1 human + 2 agents)
+├── examples/sprout/       # a complete worked example (2 humans + 6 agents)
+├── examples/relay/        # an all-agent worked example (5 agents, 0 humans)
+└── tests/                 # one test per rule + known-good / known-bad charters
 ```
 
 ## Roadmap

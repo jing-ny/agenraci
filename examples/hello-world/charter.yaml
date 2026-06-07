@@ -1,0 +1,32 @@
+# hello-world — the smallest charter that means something.
+#
+# One human, one AI agent, two action types. It exists to show the single
+# idea at the heart of nextRACI: the agent can *do* the work (Responsible)
+# while a human still *owns the outcome* (Accountable). Those are different
+# questions, and keeping them apart is the whole point.
+#
+# Validate it:  nextraci validate examples/hello-world/charter.yaml
+
+project: hello-world
+
+roles: [maintainer, assistant]
+
+members:
+  - { name: you, type: human, role: maintainer }
+  - { name: Ada, type: agent, role: assistant, model: claude-opus-4-8 }
+
+capabilities:
+  assistant:  { grant: [edit_code] }   # the agent may change code...
+  maintainer: { grant: [merge] }       # ...but only you put it on main.
+
+actions:
+
+  write_code:
+    responsible: assistant   # Ada writes the change
+    accountable: maintainer  # you answer for what it does
+    capabilities: [edit_code]
+
+  merge_code:
+    responsible: maintainer
+    accountable: maintainer
+    capabilities: [merge]
