@@ -1,0 +1,39 @@
+# Hello-world — the smallest meaningful nextRACI entrypoint.
+#
+# A minimal valid charter with only 2 actions, 1 human + 1 agent,
+# and exactly one accountable role per action.
+#
+# Validate me:
+#   nextraci validate examples/hello-world/charter.yaml
+
+project: hello-world
+
+# --- The role library -------------------------------------------------------
+roles:
+  - owner
+  - builder
+
+# --- The team: one human appointing one agent -------------------------------
+members:
+  - { name: you, type: human, role: owner }
+  - { name: agent, type: agent, role: builder, model: claude-haiku-4-5 }
+
+# --- Permissions: what each role is explicitly allowed to touch ----------------
+capabilities:
+  owner: { grant: [coordinate] }
+  builder: { grant: [edit_code] }
+
+# --- Action types ------------------------------------------------------------
+actions:
+
+  A1_log_request:
+    responsible: owner
+    accountable: owner
+    informed: [builder]
+    capabilities: [coordinate]
+
+  A2_fix_request:
+    responsible: builder
+    accountable: builder
+    consulted: [owner]
+    capabilities: [edit_code]

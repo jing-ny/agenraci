@@ -1,0 +1,64 @@
+# Agent-review gate — a tiny approval-loop example.
+#
+# A slightly richer entrypoint with one gate so new users can see a complete
+# approval path in a small charter:
+#
+# - a solo developer (agent) builds work,
+# - a reviewer approves before merge,
+# - and a break-glass path prevents deadlock.
+#
+# Validate me:
+#   nextraci validate examples/agent-review-gate/charter.yaml
+
+project: agent-review-gate
+
+# --- The role library -------------------------------------------------------
+roles:
+  - owner
+  - builder
+  - reviewer
+
+# --- The team: one human + two agents -------------------------------------
+members:
+  - { name: you, type: human, role: owner }
+  - { name: agent, type: agent, role: builder, model: claude-opus-4-8 }
+  - { name: auditor, type: agent, role: reviewer, model: claude-opus-4-5 }
+
+# --- Permissions ------------------------------------------------------------
+capabilities:
+  owner: { grant: [plan, communicate] }
+  builder: { grant: [edit_code, merge] }
+  reviewer: { grant: [review] }
+
+# --- Action types -----------------------------------------------------------
+actions:
+
+  A1_plan_work:
+    responsible: owner
+    accountable: owner
+    capabilities: [plan]
+
+  A2_implement_change:
+    responsible: builder
+    accountable: builder
+    consulted: [owner]
+    capabilities: [edit_code]
+
+  A3_review_and_merge:
+    responsible: builder
+    accountable: reviewer
+    consulted: [owner]
+    capabilities: [merge, review]
+    gate:
+      approver: reviewer
+      on_timeout: block
+      break_glass:
+        who: owner
+        condition: stalled_review
+        requires_after_review: true
+
+  A4_release:
+    responsible: owner
+    accountable: owner
+    informed: [reviewer, builder]
+    capabilities: [communicate]

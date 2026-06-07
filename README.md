@@ -154,10 +154,12 @@ nextraci/
 ├── SPEC.md              # the three questions, RACI rules, file format, checker rules
 ├── nextraci/            # the Python package (schema, checker, cli, connectors,
 │                        #   and the starter template `nextraci init` writes)
-├── governance/          # nextRACI's own charter — the project governs itself
-├── examples/sprout/     # a complete worked example (2 humans + 6 agents)
-├── examples/relay/      # an all-agent worked example (5 agents, 0 humans)
-└── tests/               # one test per rule + known-good / known-bad charters
+├── governance/             # nextRACI's own charter — the project governs itself
+├── examples/hello-world/   # a minimal worked example (1 human + 1 agent)
+├── examples/agent-review-gate/ # a minimal approval-flow example (1 human + 2 agents)
+├── examples/sprout/        # a complete worked example (2 humans + 6 agents)
+├── examples/relay/         # an all-agent worked example (5 agents, 0 humans)
+└── tests/                  # one test per rule + known-good / known-bad charters
 ```
 
 ## Roadmap
@@ -196,7 +198,7 @@ defines and checks the rules those runtimes would enforce.
 
 **Is this vaporware?**
 No. v0.1 *writes and checks* a charter today: a real file format, an automatic
-checker with rules R1–R5, two worked examples, and a template — all of which you
+checker with rules R1–R5, four worked examples, and a template — all of which you
 can run from a clone of this repo (`pip install -e .` then
 `nextraci validate examples/sprout/charter.yaml`). What it does
 *not* do yet is intercept actions or enforce approvals at runtime; that's stated
