@@ -46,7 +46,7 @@ ISO/IEC 42001 and the EU AI Act.
 A charter where two roles both think they're accountable for shipping code — the
 checker catches it (rule **R1**), and the one-line fix passes:
 
-<!-- demo-gif: after `vhs docs/demo/demo.tape`, embed ![demo](docs/demo/demo.gif) here -->
+![AgenRACI catching a two-accountable conflict, then passing once fixed](docs/demo/demo.gif)
 
 ```text
 $ agenraci validate docs/demo/charter-broken.yaml
@@ -155,6 +155,7 @@ agenraci/
 ├── agenraci/            # the Python package (schema, checker, cli, connectors,
 │                        #   and the starter template `agenraci init` writes)
 ├── governance/          # AgenRACI's own charter — the project governs itself
+├── examples/autopilot/    # ★ flagship: an autonomous coding team (1 human + 4 agents)
 ├── examples/hello-world/  # the smallest meaningful charter (1 human + 1 agent)
 ├── examples/blog/         # one step up: a gate + separation of powers (1 human + 2 agents)
 ├── examples/sprout/       # a complete worked example (2 humans + 6 agents)

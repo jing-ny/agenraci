@@ -1,0 +1,131 @@
+# Autopilot — an autonomous coding team that ships software with light human touch.
+#
+# This is the case AgenRACI was built for: a planner picks work, a coder writes it,
+# a reviewer owns the merge, a monitor watches production — and most of it happens
+# with no human pressing the button. The one human (the maintainer) sets direction,
+# approves large spend, and holds the emergency key. The charter answers the hard
+# question up front: when an agent ships code or spends money on its own, who is
+# accountable, and what stops it from running away?
+#
+# It exercises every active rule (R1-R6). See ./README.md for the narrative.
+#
+# Validate me:  agenraci validate examples/autopilot/charter.yaml
+
+project: autopilot
+
+# --- The role library (defined once; members are assigned to roles) ----------
+roles:
+  - maintainer   # the one human: sets direction, approves big spend, holds break-glass
+  - planner      # triages the backlog, picks the next unit of work; does NOT write code
+  - coder        # writes the change and opens the PR; CANNOT merge or deploy
+  - reviewer     # owns the merge decision; can veto; CANNOT write code or deploy
+  - monitor      # watches production health; raises issues; touches nothing else
+
+# --- The team: one human, four agents (adding an agent is one line) -----------
+members:
+  - { name: you,    type: human, role: maintainer }
+  - { name: nova,    type: agent, role: planner,  model: claude-opus-4-8 }
+  - { name: forge,   type: agent, role: coder,    model: claude-opus-4-8 }
+  - { name: sentinel, type: agent, role: reviewer, model: claude-opus-4-8 }
+  - { name: pulse,   type: agent, role: monitor,  model: claude-haiku-4-5 }
+
+# --- Permissions: what each role may touch (granted or explicitly denied) -----
+capabilities:
+  maintainer: { grant: [spend, merge, deploy, read_repo] }
+  planner:    { grant: [read_repo],                      deny: [edit_code, open_pr, merge, deploy, spend] }
+  coder:      { grant: [edit_code, open_pr, read_repo],  deny: [merge, deploy, spend] }
+  reviewer:   { grant: [merge, block_merge, read_repo],  deny: [edit_code, deploy, spend] }
+  monitor:    { grant: [read_repo],                      deny: [edit_code, open_pr, merge, deploy, spend] }
+
+# --- Action types: RACI per type, exactly one Accountable each ----------------
+actions:
+
+  A1_triage_and_pick_work:
+    responsible: planner              # Nova reads the backlog and picks the next item...
+    accountable: planner              # ...and owns that choice; no human picks each ticket.
+    consulted:   [maintainer]
+    capabilities: [read_repo]
+    low_risk: true                    # reading + prioritising only — nothing destructive
+    gate:
+      approver: planner
+      on_timeout: proceed_if_low_risk # legal ONLY because low_risk: true (R5)
+      break_glass: { who: maintainer, condition: backlog_frozen, requires_after_review: false }
+
+  A2_write_change:
+    responsible: coder                # Forge writes the code...
+    accountable: coder                # ...and owns the change it produces.
+    consulted:   [reviewer]           # the reviewer's view matters, but it can't edit code
+    informed:    [maintainer, planner]
+    capabilities: [edit_code]
+    suggestion_route:                 # reviewer can't push code, so its input gets a route
+      from: reviewer
+      to:   coder
+      as:   review_comment
+
+  A3_open_pr:
+    responsible: coder
+    accountable: coder
+    informed:    [maintainer, reviewer, planner]
+    capabilities: [open_pr]
+
+  A4_run_ci:
+    responsible: coder                # CI runs on every push — and it costs compute money...
+    accountable: coder                # ...the coder owns that spend.
+    informed:    [maintainer]
+    capabilities: [spend]
+    low_risk: true                    # a normal CI run is bounded, low-risk spend
+    gate:
+      approver: coder
+      on_timeout: proceed_if_low_risk # an agent CAN spend here without a human — but only
+      break_glass: { who: maintainer, condition: ci_budget_exceeded, requires_after_review: true }
+
+  A5_merge_to_main:
+    responsible: reviewer
+    accountable: reviewer             # the Reviewer owns the merge — not the coder who wrote it
+    consulted:   [coder]
+    informed:    [maintainer, planner]
+    capabilities: [merge, block_merge]
+    suggestion_route:                 # coder can't merge its own work, so "ready" gets a route
+      from: coder
+      to:   reviewer
+      as:   ready_to_merge
+    gate:
+      approver: reviewer
+      on_timeout: escalate_to:maintainer  # if the reviewer goes dark, the human decides (R6)
+      break_glass: { who: maintainer, condition: sev1_incident, requires_after_review: true }
+
+  A6_deploy:
+    responsible: maintainer           # a deploy to production is a human's call here
+    accountable: maintainer
+    consulted:   [reviewer]           # reviewer is consulted but denied deploy...
+    informed:    [monitor, planner]
+    capabilities: [deploy]
+    suggestion_route:                 # ...so a deploy objection has somewhere to go
+      from: reviewer
+      to:   maintainer
+      as:   deploy_objection
+    gate:
+      approver: maintainer
+      on_timeout: block               # never auto-proceeds: production deploy is not low_risk
+      break_glass: { who: maintainer, condition: rollback_needed, requires_after_review: true }
+
+  A7_approve_large_spend:
+    responsible: any                  # any actor may REQUEST a large spend (a new GPU box, an API tier)...
+    accountable: maintainer           # ...but a human approves it.
+    informed:    [planner, reviewer]
+    capabilities: [spend]
+    gate:
+      approver: maintainer
+      on_timeout: block               # never auto-proceeds: large spend is not low_risk
+      break_glass: { who: maintainer, condition: billing_outage, requires_after_review: true }
+
+  A8_watch_production:
+    responsible: monitor              # Pulse watches health and flags regressions...
+    accountable: monitor              # ...and owns the watch; it never fixes anything itself.
+    informed:    [maintainer, planner, reviewer]
+    capabilities: [read_repo]
+    low_risk: true
+    gate:
+      approver: monitor
+      on_timeout: proceed_if_low_risk
+      break_glass: { who: maintainer, condition: incident_detected, requires_after_review: false }
