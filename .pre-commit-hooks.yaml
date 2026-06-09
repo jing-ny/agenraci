@@ -1,0 +1,18 @@
+# Lets any repo run the AgenRACI checker on its charter before each commit.
+# Add to your .pre-commit-config.yaml:
+#
+#   repos:
+#     - repo: https://github.com/jing-ny/agenraci
+#       rev: v0.1.0
+#       hooks:
+#         - id: agenraci-validate
+#
+# By default it checks staged files named charter.yaml / charter.yml. Override
+# the match with `files:` in your config if your charter lives elsewhere.
+- id: agenraci-validate
+  name: AgenRACI validate
+  description: Check that AgenRACI charter files hold together (rules R1-R6).
+  entry: agenraci validate
+  language: python
+  files: (^|/)charter\.ya?ml$
+  pass_filenames: true

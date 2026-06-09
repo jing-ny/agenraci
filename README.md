@@ -146,6 +146,40 @@ agenraci compile --target humanlayer <charter>   # placeholder in v0.1
 agenraci compile --target langgraph  <charter>   # placeholder in v0.1
 ```
 
+## Keep the charter honest in CI
+
+A charter only protects you if it stays valid as it changes. Two ways to enforce
+that automatically:
+
+**GitHub Action** — fail a PR that breaks the charter:
+
+```yaml
+# .github/workflows/charter.yml
+on: [push, pull_request]
+jobs:
+  charter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jing-ny/agenraci@v0.1.0
+        with:
+          charter: charter.yaml      # a path, or a glob like 'governance/*.yaml'
+```
+
+**pre-commit hook** — catch it before it's even committed:
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/jing-ny/agenraci
+    rev: v0.1.0
+    hooks:
+      - id: agenraci-validate        # checks staged charter.yaml / charter.yml files
+```
+
+`agenraci validate` takes one or more paths, so a single call checks every
+charter in the repo and exits non-zero if any fails.
+
 ## Repository layout
 
 ```

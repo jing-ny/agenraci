@@ -35,6 +35,25 @@ def test_init_writes_a_charter_that_validates(tmp_path, monkeypatch):
     assert "PASS" in check.stdout
 
 
+def test_validate_accepts_multiple_charters(tmp_path, monkeypatch):
+    """`validate` checks every path given and exits non-zero if any fails."""
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["init", "good.yaml"])
+    (tmp_path / "bad.yaml").write_text(
+        "project: broken\n"
+        "roles: [a, b]\n"
+        "actions:\n"
+        "  x: { responsible: a, accountable: [a, b] }\n",  # 2 accountable -> R1 fails
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["validate", "good.yaml", "bad.yaml"])
+    assert result.exit_code == 1
+    # Both charters appear in the combined report.
+    assert "good.yaml" in result.stdout
+    assert "bad.yaml" in result.stdout
+
+
 def test_init_custom_path_creates_parent_dirs(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["init", "team/constitution.yaml"])
