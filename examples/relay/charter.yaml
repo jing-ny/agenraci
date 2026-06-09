@@ -1,12 +1,12 @@
 # Relay — an all-agent customer-support triage team.
 #
-# A complete, valid nextRACI charter where EVERY role-holder is an AI agent — no
+# A complete, valid AgenRACI charter where EVERY role-holder is an AI agent — no
 # humans in the member list. The point: agents are first-class role-holders, and an
 # agent can be the single Accountable party for an action and hold the break-glass
 # key. (In production you would usually keep a human as the ultimate break-glass
 # authority; this example deliberately shows the all-agent extreme.)
 #
-# Validate me:  nextraci validate examples/relay/charter.yaml
+# Validate me:  agenraci validate examples/relay/charter.yaml
 
 project: relay
 

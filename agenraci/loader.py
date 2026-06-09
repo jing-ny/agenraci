@@ -1,4 +1,4 @@
-"""Load a ``charter.yaml`` into a :class:`~nextraci.schema.Charter`."""
+"""Load a ``charter.yaml`` into a :class:`~agenraci.schema.Charter`."""
 
 from __future__ import annotations
 

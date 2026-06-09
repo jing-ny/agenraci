@@ -2,7 +2,7 @@
 
 **Sprout** is a houseplant-care reminder app. It reminds users to water their
 plants, tracks streaks, and sends push notifications. It's simple enough to hold
-in your head, but complete enough to exercise every nextRACI role: it needs
+in your head, but complete enough to exercise every AgenRACI role: it needs
 **coding** (the app), **research** (which push service, which framework),
 **domain expertise** (correct watering science per species — getting this wrong
 hurts users' plants, so it's a real accountability), **monitoring** (are users
@@ -12,7 +12,7 @@ logging waterings? retention? crash rate?), and **incident handling**
 Validate it:
 
 ```bash
-nextraci validate examples/sprout/charter.yaml
+agenraci validate examples/sprout/charter.yaml
 ```
 
 ## The team: 2 humans, 6 agents

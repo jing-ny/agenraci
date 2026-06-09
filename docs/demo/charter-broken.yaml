@@ -1,5 +1,5 @@
 # A tiny charter with ONE deliberate mistake: action A2 lists two accountable
-# roles. nextRACI's R1 rule catches it. See charter-fixed.yaml for the one-line fix.
+# roles. AgenRACI's R1 rule catches it. See charter-fixed.yaml for the one-line fix.
 
 project: demo
 

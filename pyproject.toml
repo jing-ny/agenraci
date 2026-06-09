@@ -3,14 +3,25 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nextraci"
+name = "agenraci"
 version = "0.1.0"
 description = "Who's allowed to do what, and who's accountable, on a team of humans and AI agents: a machine-checkable RACI charter + linter."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
-authors = [{ name = "nextRACI contributors" }]
+authors = [{ name = "AgenRACI contributors" }]
 keywords = ["ai-agents", "raci", "governance", "rbac", "accountability", "charter"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "pydantic>=2.6",
     "typer>=0.12",
@@ -21,16 +32,18 @@ dependencies = [
 dev = ["pytest>=8.0"]
 
 [project.scripts]
-nextraci = "nextraci.cli:main"
+agenraci = "agenraci.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/jing-ny/nextraci"
+Homepage = "https://github.com/jing-ny/agenraci"
+Repository = "https://github.com/jing-ny/agenraci"
+Issues = "https://github.com/jing-ny/agenraci/issues"
 
 [tool.setuptools.packages.find]
-include = ["nextraci*"]
+include = ["agenraci*"]
 
 [tool.setuptools.package-data]
-nextraci = ["templates/*.yaml"]
+agenraci = ["templates/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

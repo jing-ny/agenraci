@@ -16,9 +16,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from nextraci.linter import lint
-from nextraci.loader import load_charter
-from nextraci.schema import Charter
+from agenraci.linter import lint
+from agenraci.loader import load_charter
+from agenraci.schema import Charter
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"

@@ -59,7 +59,7 @@ jobs:
     # publisher (one-time setup, see RELEASING.md).
     environment:
       name: pypi
-      url: https://pypi.org/p/nextraci
+      url: https://pypi.org/p/agenraci
     permissions:
       id-token: write
     steps:

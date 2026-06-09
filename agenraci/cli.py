@@ -1,8 +1,8 @@
-"""The ``nextraci`` command-line interface.
+"""The ``agenraci`` command-line interface.
 
-* ``nextraci init [path]`` — write a starter charter to edit.
-* ``nextraci validate <charter.yaml>`` — parse + lint, with a per-rule report.
-* ``nextraci compile --target {humanlayer,langgraph} <charter.yaml>`` — STUB.
+* ``agenraci init [path]`` — write a starter charter to edit.
+* ``agenraci validate <charter.yaml>`` — parse + lint, with a per-rule report.
+* ``agenraci compile --target {humanlayer,langgraph} <charter.yaml>`` — STUB.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from .loader import load_charter
 
 app = typer.Typer(
     add_completion=False,
-    help="nextRACI — validate and compile a team's operating constitution.",
+    help="AgenRACI — validate and compile a team's operating constitution.",
 )
 
 # Reuse typer's underlying console colours without a hard dependency on rich.
@@ -38,10 +38,10 @@ def _echo(msg: str = "") -> None:
 def _version_callback(value: bool) -> None:
     if value:
         try:
-            ver = _pkg_version("nextraci")
+            ver = _pkg_version("agenraci")
         except PackageNotFoundError:  # running from a source tree, not installed
             ver = "0.0.0+unknown"
-        _echo(f"nextraci {ver}")
+        _echo(f"agenraci {ver}")
         raise typer.Exit()
 
 
@@ -49,15 +49,15 @@ def _version_callback(value: bool) -> None:
 def _root(
     version: bool = typer.Option(
         False, "--version", "-V",
-        help="Show the nextRACI version and exit.",
+        help="Show the AgenRACI version and exit.",
         is_eager=True, callback=_version_callback,
     ),
 ) -> None:
-    """nextRACI — validate and compile a team's operating constitution."""
+    """AgenRACI — validate and compile a team's operating constitution."""
 
 
 def _template_text() -> str:
-    return (files("nextraci") / "templates" / "charter.template.yaml").read_text(
+    return (files("agenraci") / "templates" / "charter.template.yaml").read_text(
         encoding="utf-8"
     )
 
@@ -82,7 +82,7 @@ def init(
     charter_path.parent.mkdir(parents=True, exist_ok=True)
     charter_path.write_text(_template_text(), encoding="utf-8")
     _echo(f"{_GREEN}✓{_RESET} wrote starter charter to {_BOLD}{charter_path}{_RESET}")
-    _echo(f"  Edit it, then run: {_BOLD}nextraci validate {charter_path}{_RESET}")
+    _echo(f"  Edit it, then run: {_BOLD}agenraci validate {charter_path}{_RESET}")
 
 
 @app.command()
@@ -108,7 +108,7 @@ def validate(
     for e in errors:
         by_rule.setdefault(e.rule, []).append(e)
 
-    _echo(f"{_BOLD}nextRACI charter:{_RESET} {charter.project}  "
+    _echo(f"{_BOLD}AgenRACI charter:{_RESET} {charter.project}  "
           f"{_DIM}({charter_path}){_RESET}")
     _echo(f"{_DIM}{len(charter.roles)} roles · {len(charter.members)} members · "
           f"{len(charter.actions)} action types{_RESET}")
@@ -155,10 +155,10 @@ def compile(  # noqa: A001 - this is the user-facing verb
     errors = lint(charter)
     if errors:
         _echo(f"{_RED}✗ refusing to compile:{_RESET} charter fails "
-              f"{len(errors)} linter rule(s). Run `nextraci validate` first.")
+              f"{len(errors)} linter rule(s). Run `agenraci validate` first.")
         raise typer.Exit(code=1)
 
-    _echo(f"{_DIM}# nextraci compile --target {target} (STUB){_RESET}")
+    _echo(f"{_DIM}# agenraci compile --target {target} (STUB){_RESET}")
     _echo(TARGETS[target](charter))
 
 

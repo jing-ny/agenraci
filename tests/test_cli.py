@@ -1,11 +1,11 @@
-"""CLI-level tests for the nextraci command."""
+"""CLI-level tests for the agenraci command."""
 
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 from typer.testing import CliRunner
 
-from nextraci.cli import app
+from agenraci.cli import app
 
 runner = CliRunner()
 
@@ -13,13 +13,13 @@ runner = CliRunner()
 def test_version_flag_prints_version_and_exits_zero():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert result.stdout.strip() == f"nextraci {pkg_version('nextraci')}"
+    assert result.stdout.strip() == f"agenraci {pkg_version('agenraci')}"
 
 
 def test_short_version_flag():
     result = runner.invoke(app, ["-V"])
     assert result.exit_code == 0
-    assert result.stdout.startswith("nextraci ")
+    assert result.stdout.startswith("agenraci ")
 
 
 def test_init_writes_a_charter_that_validates(tmp_path, monkeypatch):

@@ -1,6 +1,6 @@
 # ============================================================================
-# nextRACI charter template — copy this file to charter.yaml and edit.
-# Validate with:  nextraci validate charter.yaml
+# AgenRACI charter template — copy this file to charter.yaml and edit.
+# Validate with:  agenraci validate charter.yaml
 #
 # A charter declares the OPERATING CONSTITUTION of your mixed human + AI-agent
 # team: for every TYPE of action, who does it, who owns it, who is consulted /

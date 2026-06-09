@@ -1,6 +1,6 @@
 # VHS tape — renders docs/demo/demo.gif (https://github.com/charmbracelet/vhs)
 #
-# Render from the repo root, with nextraci installed:
+# Render from the repo root, with agenraci installed:
 #   pip install -e .
 #   vhs docs/demo/demo.tape
 #
@@ -18,14 +18,14 @@ Set Theme "Dracula"
 Type "# A charter where two roles are both 'accountable' for shipping code."
 Enter
 Sleep 1500ms
-Type "nextraci validate docs/demo/charter-broken.yaml"
+Type "agenraci validate docs/demo/charter-broken.yaml"
 Enter
 Sleep 3500ms
 
 Type "# R1 caught the conflict. Fix it: exactly one accountable."
 Enter
 Sleep 1500ms
-Type "nextraci validate docs/demo/charter-fixed.yaml"
+Type "agenraci validate docs/demo/charter-fixed.yaml"
 Enter
 Sleep 3500ms
 

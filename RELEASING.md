@@ -1,4 +1,4 @@
-# Releasing nextRACI
+# Releasing AgenRACI
 
 The 0.1.0 release replaces the `0.0.0` PyPI placeholder with the first real
 package. Publishing is **tag-driven and reproducible**: a maintainer pushes a
@@ -11,11 +11,11 @@ API token is stored in the repo (PyPI Trusted Publishing is used instead).
 Do this once, before the first tag-driven release. It lets GitHub Actions publish
 without any long-lived token.
 
-1. On PyPI, create (or claim) the `nextraci` project — the `0.0.0` placeholder
+1. On PyPI, create (or claim) the `agenraci` project — the `0.0.0` placeholder
    already reserves the name.
 2. In the project's **Settings → Publishing**, add a **Trusted Publisher**:
    - Owner: `jing-ny`
-   - Repository: `nextraci`
+   - Repository: `agenraci`
    - Workflow name: `publish.yml`
    - Environment: `pypi`
 3. In the GitHub repo, create an **Environment** named `pypi`
@@ -50,10 +50,10 @@ Everything here must be true on `main` before you cut the tag.
       Both artifacts must report `PASSED`.
 - [ ] **A fresh install works from the built wheel:**
       ```bash
-      python -m venv /tmp/nextraci-rc && source /tmp/nextraci-rc/bin/activate
-      pip install dist/nextraci-*.whl
-      nextraci --version
-      nextraci validate examples/sprout/charter.yaml
+      python -m venv /tmp/agenraci-rc && source /tmp/agenraci-rc/bin/activate
+      pip install dist/agenraci-*.whl
+      agenraci --version
+      agenraci validate examples/sprout/charter.yaml
       deactivate
       ```
 
@@ -79,9 +79,9 @@ Pushing the tag triggers [`publish.yml`](.github/workflows/publish.yml):
 
 ## After publishing
 
-- [ ] Confirm the release is live: <https://pypi.org/project/nextraci/>.
-- [ ] `pip install nextraci` in a clean environment and run
-      `nextraci validate examples/sprout/charter.yaml`.
+- [ ] Confirm the release is live: <https://pypi.org/project/agenraci/>.
+- [ ] `pip install agenraci` in a clean environment and run
+      `agenraci validate examples/sprout/charter.yaml`.
 - [ ] Create a GitHub Release for the tag with notes (what shipped, the active
       rule set, known limitations).
 - [ ] Bump `pyproject.toml` to the next dev version on `main`.

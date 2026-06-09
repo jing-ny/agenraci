@@ -1,4 +1,4 @@
-"""Pydantic v2 models for a nextRACI ``charter.yaml``.
+"""Pydantic v2 models for a AgenRACI ``charter.yaml``.
 
 The charter is the single human-readable file that declares the *operating
 constitution* of a mixed human + AI-agent team. It answers, for every TYPE of

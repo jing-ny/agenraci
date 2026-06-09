@@ -7,7 +7,7 @@ It's still tiny, but it introduces the machinery that
 without the depth of [`sprout`](../sprout/) or [`relay`](../relay/).
 
 ```bash
-nextraci validate examples/blog/charter.yaml
+agenraci validate examples/blog/charter.yaml
 ```
 
 ## The team: 1 human, 2 agents
@@ -31,7 +31,7 @@ nextraci validate examples/blog/charter.yaml
 
 - **A gate.** `publish_post` has a gate whose approver is the fact-checker, with
   `on_timeout: block` — an unchecked post **never auto-publishes**. This is the
-  approval step nextRACI exists to make explicit (rule **R4**).
+  approval step AgenRACI exists to make explicit (rule **R4**).
 - **An emergency path.** The same gate declares a `break_glass`: you (the editor)
   can pull a live post for a `legal_takedown`, with mandatory after-the-fact
   review. Every gate must have one, so a safety rule can't deadlock the team.

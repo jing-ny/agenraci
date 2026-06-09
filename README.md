@@ -1,13 +1,13 @@
-# nextRACI — who's allowed to do what, and who's accountable, on a team of humans and AI agents
+# AgenRACI — who's allowed to do what, and who's accountable, on a team of humans and AI agents
 
-[![CI](https://github.com/jing-ny/nextraci/actions/workflows/ci.yml/badge.svg)](https://github.com/jing-ny/nextraci/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/nextraci.svg)](https://pypi.org/project/nextraci/)
+[![CI](https://github.com/jing-ny/agenraci/actions/workflows/ci.yml/badge.svg)](https://github.com/jing-ny/agenraci/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/agenraci.svg)](https://pypi.org/project/agenraci/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > When an AI agent does something on your team — ships code, sends a message,
 > spends money — and no human pressed the button, **who is accountable?**
-> nextRACI is one plain-language file that answers that up front, for every kind
+> AgenRACI is one plain-language file that answers that up front, for every kind
 > of action: who may do it, who signs off, and who owns the outcome.
 
 For decades, teams have used **RACI** — a simple chart of who is *Responsible,
@@ -15,7 +15,7 @@ Accountable, Consulted, and Informed* for each kind of work. RACI quietly assume
 a person starts every task. AI agents break that assumption: they can act on
 their own, but someone human must still answer for what they do.
 
-**nextRACI brings RACI into the age of AI agents.** You write one file — a
+**AgenRACI brings RACI into the age of AI agents.** You write one file — a
 *charter* — that lists, for each type of action on your team:
 
 - who **does** it (Responsible),
@@ -29,15 +29,15 @@ action with no one accountable, two people who both think they're in charge, or
 an approval step that could quietly stall forever.
 
 ```bash
-pip install nextraci
-nextraci init                    # writes a commented charter.yaml to edit
-nextraci validate charter.yaml   # check it holds together
+pip install agenraci
+agenraci init                    # writes a commented charter.yaml to edit
+agenraci validate charter.yaml   # check it holds together
 ```
 
 Cloned the repo instead? Validate a bundled example directly:
-`nextraci validate examples/sprout/charter.yaml`.
+`agenraci validate examples/sprout/charter.yaml`.
 
-New here? Start with the essay: [**Why nextRACI**](docs/why-nextraci.md) — the
+New here? Start with the essay: [**Why AgenRACI**](docs/why-agenraci.md) — the
 accountability gap, why classic RACI breaks under agentic AI, and how this fits
 ISO/IEC 42001 and the EU AI Act.
 
@@ -49,21 +49,21 @@ checker catches it (rule **R1**), and the one-line fix passes:
 <!-- demo-gif: after `vhs docs/demo/demo.tape`, embed ![demo](docs/demo/demo.gif) here -->
 
 ```text
-$ nextraci validate docs/demo/charter-broken.yaml
+$ agenraci validate docs/demo/charter-broken.yaml
 ✗ R1 single accountable
     - A2_ship_code: has 2 accountable roles (builder, reviewer) — exactly one is required.
 FAIL — 1 issue(s) found.
 
-$ nextraci validate docs/demo/charter-fixed.yaml
+$ agenraci validate docs/demo/charter-fixed.yaml
 ✓ R1 single accountable
 PASS — charter is a valid operating constitution.
 ```
 
 Full walkthrough + a recordable GIF script: [`docs/demo/`](docs/demo/).
 
-## What nextRACI is (and isn't) yet
+## What AgenRACI is (and isn't) yet
 
-**Today, nextRACI helps you write the charter and checks that it holds together.**
+**Today, AgenRACI helps you write the charter and checks that it holds together.**
 You get:
 
 - a clear format for the charter file,
@@ -71,9 +71,9 @@ You get:
   deadlock,
 - a worked example and a blank template to start from.
 
-**nextRACI does not run your team — yet.** It doesn't (today) intercept actions or
+**AgenRACI does not run your team — yet.** It doesn't (today) intercept actions or
 enforce approvals at the moment they happen. Tools like LangGraph, CrewAI, and
-HumanLayer already handle *running* agents and pausing them for sign-off. nextRACI
+HumanLayer already handle *running* agents and pausing them for sign-off. AgenRACI
 sits one level up and answers what they don't: *on this specific team, who is
 allowed to do what, and who breaks a tie.* Turning the charter into live, enforced
 approvals is the next milestone on the roadmap — not a claim about today.
@@ -86,12 +86,12 @@ behind standards like ISO/IEC 42001 and the EU AI Act). What's missing is the
 *operating* level: a precise, machine-checkable charter for the day-to-day, where
 the AI agents themselves hold real roles and the rules can be verified by a tool
 instead of living in a slide deck. That everyday accountability — for the exact
-moment an agent acts on its own — is what nextRACI covers.
+moment an agent acts on its own — is what AgenRACI covers.
 
 ## The core model (three independent questions)
 
 Most "who does what" confusion comes from mixing up three different questions.
-nextRACI keeps them separate:
+AgenRACI keeps them separate:
 
 | Question        | What it asks                      | Example |
 |-----------------|-----------------------------------|---------|
@@ -140,21 +140,21 @@ backdoor for an agent to act unsupervised.
 ## CLI
 
 ```bash
-nextraci init [path]                             # write a commented starter charter (default: charter.yaml)
-nextraci validate <charter.yaml>                 # parse + check, with a per-rule report
-nextraci compile --target humanlayer <charter>   # placeholder in v0.1
-nextraci compile --target langgraph  <charter>   # placeholder in v0.1
+agenraci init [path]                             # write a commented starter charter (default: charter.yaml)
+agenraci validate <charter.yaml>                 # parse + check, with a per-rule report
+agenraci compile --target humanlayer <charter>   # placeholder in v0.1
+agenraci compile --target langgraph  <charter>   # placeholder in v0.1
 ```
 
 ## Repository layout
 
 ```
-nextraci/
+agenraci/
 ├── README.md            # this file
 ├── SPEC.md              # the three questions, RACI rules, file format, checker rules
-├── nextraci/            # the Python package (schema, checker, cli, connectors,
-│                        #   and the starter template `nextraci init` writes)
-├── governance/          # nextRACI's own charter — the project governs itself
+├── agenraci/            # the Python package (schema, checker, cli, connectors,
+│                        #   and the starter template `agenraci init` writes)
+├── governance/          # AgenRACI's own charter — the project governs itself
 ├── examples/hello-world/  # the smallest meaningful charter (1 human + 1 agent)
 ├── examples/blog/         # one step up: a gate + separation of powers (1 human + 2 agents)
 ├── examples/sprout/       # a complete worked example (2 humans + 6 agents)
@@ -171,38 +171,38 @@ nextraci/
   `escalate_to` edges (standing veto relations).
 - **v0.3 — LangGraph connector** + a small web view that renders the chart so
   non-engineers can read it.
-- **v0.4 — `nextraci lint --explain`** that names each gap or conflict in plain
+- **v0.4 — `agenraci lint --explain`** that names each gap or conflict in plain
   language and suggests a fix.
 
 ## FAQ
 
 **Isn't this just RBAC?**
-No. Permission ("what may you touch") is only *one* of nextRACI's three axes.
-Role-based access control answers that one question and stops there. nextRACI also
+No. Permission ("what may you touch") is only *one* of AgenRACI's three axes.
+Role-based access control answers that one question and stops there. AgenRACI also
 separates **Function** (what you do) and **Authority** (whose call wins in a
 conflict), and — the part RBAC has no concept of — it centers a single
 **accountable** owner for each *type* of action. RBAC can tell you an agent is
 allowed to call `deploy`; it can't tell you who answers for the deploy, who had to
 sign off first, or what should happen if that approver goes dark. A charter can be
 denied a permission yet still be accountable for the outcome — those are different
-axes, and conflating them is exactly the gap nextRACI exists to close.
+axes, and conflating them is exactly the gap AgenRACI exists to close.
 
 **Why not just use HumanLayer / LangGraph / CrewAI?**
 Use them — they're solving a different layer. Those frameworks *run* agents and can
-pause them to wait for a human sign-off. nextRACI sits one level up: it's the file
+pause them to wait for a human sign-off. AgenRACI sits one level up: it's the file
 that says, *for this specific team*, who is allowed to do what, who owns each
 outcome, and who breaks a tie — independent of which runtime you use. The charter
 is framework-agnostic on purpose. Turning a charter into the live gates those tools
-enforce (starting with a HumanLayer connector) is on the roadmap; today nextRACI
+enforce (starting with a HumanLayer connector) is on the roadmap; today AgenRACI
 defines and checks the rules those runtimes would enforce.
 
 **Is this vaporware?**
 No. v0.1 *writes and checks* a charter today: a real file format, an automatic
-checker with rules R1–R5, two worked examples, and a template — all of which you
+checker with rules R1–R6, worked examples, and a template — all of which you
 can run from a clone of this repo (`pip install -e .` then
-`nextraci validate examples/sprout/charter.yaml`). What it does
+`agenraci validate examples/sprout/charter.yaml`). What it does
 *not* do yet is intercept actions or enforce approvals at runtime; that's stated
-plainly in [What nextRACI is (and isn't) yet](#what-nextraci-is-and-isnt-yet)
+plainly in [What AgenRACI is (and isn't) yet](#what-agenraci-is-and-isnt-yet)
 above and tracked on the roadmap, not dressed up as a current capability.
 
 ## License

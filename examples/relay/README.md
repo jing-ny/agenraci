@@ -4,7 +4,7 @@
 classifies them, researches the answer, drafts a reply, checks it for correctness and
 safety, sends it, and escalates the hard ones. What makes it a useful example is that
 **every role-holder is an AI agent** — there are no humans in the member list. It shows
-the strong form of nextRACI's central claim: agents are first-class role-holders, an
+the strong form of AgenRACI's central claim: agents are first-class role-holders, an
 agent can be the single **Accountable** party for an action, and an agent can even hold
 the break-glass key.
 
@@ -14,7 +14,7 @@ the break-glass key.
 Validate it:
 
 ```bash
-nextraci validate examples/relay/charter.yaml
+agenraci validate examples/relay/charter.yaml
 ```
 
 ## The team: 5 agents, 0 humans

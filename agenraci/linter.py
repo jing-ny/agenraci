@@ -1,8 +1,8 @@
-"""The nextRACI linter: rules R1-R6 active.
+"""The AgenRACI linter: rules R1-R6 active.
 
 Each rule is a pure function ``rule(charter) -> list[LintError]``. ``lint()``
 runs them all and returns every error found. Errors are structured and name the
-offending action/role so ``nextraci validate`` can print an actionable report.
+offending action/role so ``agenraci validate`` can print an actionable report.
 """
 
 from __future__ import annotations

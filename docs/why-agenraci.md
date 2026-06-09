@@ -1,4 +1,4 @@
-# Why nextRACI
+# Why AgenRACI
 
 *An AI agent on your team just shipped code, sent a message, or spent money — and no human pressed the button. Who owns the outcome?*
 
@@ -55,9 +55,9 @@ This creates a predictable failure pattern. Teams either:
 
 Neither is enough once agents can act at 3 a.m.
 
-## What nextRACI is
+## What AgenRACI is
 
-nextRACI is a machine-checkable accountability charter for teams that use both humans and AI agents.
+AgenRACI is a machine-checkable accountability charter for teams that use both humans and AI agents.
 
 It is one plain-language file that answers three separate questions for each class of action:
 
@@ -77,11 +77,11 @@ Those are three different axes:
 * permission is not authority;
 * authority is not the same as doing the work.
 
-nextRACI makes those distinctions explicit.
+AgenRACI makes those distinctions explicit.
 
 ## What a charter contains
 
-A nextRACI charter defines a small set of roles once, such as:
+A AgenRACI charter defines a small set of roles once, such as:
 
 * orchestrator
 * engineer
@@ -118,7 +118,7 @@ Every action type must have an owner. Every approval path must say what happens 
 A diagram can explain accountability.
 A charter can be checked.
 
-nextRACI includes a checker that reads the charter and flags structural gaps, such as:
+AgenRACI includes a checker that reads the charter and flags structural gaps, such as:
 
 * an action with no accountable owner;
 * an action with more than one accountable owner;
@@ -130,9 +130,9 @@ The point is not to create another policy document. The point is to create an ar
 
 If agents are acting through code, the rules that govern them should be reviewable like code.
 
-## What nextRACI does today
+## What AgenRACI does today
 
-Today, nextRACI writes and checks the charter.
+Today, AgenRACI writes and checks the charter.
 
 It provides:
 
@@ -144,21 +144,21 @@ It provides:
 
 That is the current product: a machine-checkable accountability map for mixed human + agent teams.
 
-## What nextRACI does not do yet
+## What AgenRACI does not do yet
 
-nextRACI does not currently run your agents.
+AgenRACI does not currently run your agents.
 
 It does not intercept tool calls, enforce approvals at runtime, pause workflows, or decide whether a specific action should proceed in the moment.
 
-Tools such as LangGraph, CrewAI, and HumanLayer can orchestrate agents and introduce human approval gates. nextRACI sits one level above that. It answers the operating question those systems still need from the team:
+Tools such as LangGraph, CrewAI, and HumanLayer can orchestrate agents and introduce human approval gates. AgenRACI sits one level above that. It answers the operating question those systems still need from the team:
 
 *For this action, on this team, who is allowed to do what — and who owns the outcome?*
 
 Runtime enforcement is the roadmap, not a current claim.
 
-The next milestone is to compile a nextRACI charter into live approval gates, starting with a HumanLayer connector. A later milestone is a team-wide authority graph that can detect impossible loops, circular escalation, and conflicting override rules.
+The next milestone is to compile a AgenRACI charter into live approval gates, starting with a HumanLayer connector. A later milestone is a team-wide authority graph that can detect impossible loops, circular escalation, and conflicting override rules.
 
-## How nextRACI relates to AI governance frameworks
+## How AgenRACI relates to AI governance frameworks
 
 There are two levels of AI accountability.
 
@@ -168,21 +168,21 @@ That is the level addressed by frameworks and regulations such as ISO/IEC 42001 
 
 The second is the **operating level**: the day-to-day question of what happens when a specific agent takes a specific action with a specific permission inside a specific team.
 
-nextRACI lives at the operating level.
+AgenRACI lives at the operating level.
 
 It does not replace governance frameworks. It gives teams a concrete artifact those frameworks often require but do not prescribe in detail: a verifiable map of who owns each class of agent action, what the agent may touch, who must be consulted, and what should happen when normal approval paths fail.
 
-In an audit or incident review, nextRACI should let a team point to a file and say:
+In an audit or incident review, AgenRACI should let a team point to a file and say:
 
 *This is the charter that governed that action. It named the accountable owner, the agent's permissions, the required approval path, the timeout behavior, and the emergency override rule. The checker verified that the model was internally consistent.*
 
 Governance frameworks tell organizations they need accountability.
 
-nextRACI is one practical way to make that accountability explicit, reviewable, and machine-checkable at the level where agents actually act.
+AgenRACI is one practical way to make that accountability explicit, reviewable, and machine-checkable at the level where agents actually act.
 
 ## Get started
 
-nextRACI is open source under the MIT License.
+AgenRACI is open source under the MIT License.
 
 Start with:
 

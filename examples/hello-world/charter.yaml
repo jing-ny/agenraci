@@ -1,11 +1,11 @@
 # hello-world — the smallest charter that means something.
 #
 # One human, one AI agent, two action types. It exists to show the single
-# idea at the heart of nextRACI: the agent can *do* the work (Responsible)
+# idea at the heart of AgenRACI: the agent can *do* the work (Responsible)
 # while a human still *owns the outcome* (Accountable). Those are different
 # questions, and keeping them apart is the whole point.
 #
-# Validate it:  nextraci validate examples/hello-world/charter.yaml
+# Validate it:  agenraci validate examples/hello-world/charter.yaml
 
 project: hello-world
 

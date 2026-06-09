@@ -6,7 +6,7 @@
 # actor's input, and a deliberate separation of powers — the fact-checker,
 # not the editor, owns whether a claim goes out.
 #
-# Validate it:  nextraci validate examples/blog/charter.yaml
+# Validate it:  agenraci validate examples/blog/charter.yaml
 
 project: blog
 

@@ -1,6 +1,6 @@
-"""nextRACI — an operating constitution for humans and AI agents.
+"""AgenRACI — an operating constitution for humans and AI agents.
 
-nextRACI is a framework-agnostic specification + linter + adapters for declaring
+AgenRACI is a framework-agnostic specification + linter + adapters for declaring
 the operating constitution of a mixed human + AI-agent team. See SPEC.md.
 """
 

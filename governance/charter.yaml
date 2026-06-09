@@ -1,13 +1,13 @@
-# nextRACI governs human + AI-agent teams with a machine-checkable charter — so the
-# nextRACI project governs ITSELF the same way. This is the operating constitution for
+# AgenRACI governs human + AI-agent teams with a machine-checkable charter — so the
+# AgenRACI project governs ITSELF the same way. This is the operating constitution for
 # developing this repo: who does what, who is accountable, and who signs off.
 #
 # The members below correspond 1:1 to the agents in .claude/agents/. The orchestrator
 # reads this file to decide which agent does which task and who reviews it.
 #
-# Validate me:  nextraci validate governance/charter.yaml
+# Validate me:  agenraci validate governance/charter.yaml
 
-project: nextraci
+project: agenraci
 
 # --- The role library --------------------------------------------------------
 roles:

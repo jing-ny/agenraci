@@ -1,13 +1,13 @@
-# nextRACI specification (v0.1)
+# AgenRACI specification (v0.1)
 
-This document defines the nextRACI data model, the `charter.yaml` schema, and the
+This document defines the AgenRACI data model, the `charter.yaml` schema, and the
 linter rules. It is the authoritative reference for implementations.
 
 ---
 
 ## 1. Scope
 
-nextRACI is a **specification + linter + adapters**, not an orchestration runtime.
+AgenRACI is a **specification + linter + adapters**, not an orchestration runtime.
 A `charter.yaml` declares the *operating constitution* of a mixed human +
 AI-agent team. The linter validates it; adapters compile it into runtime config
 for tools that already exist (HumanLayer, LangGraph, …).
@@ -183,7 +183,7 @@ action/role.
 
 ## 8. Adapters
 
-`nextraci compile --target <t> <charter.yaml>` compiles a *validated* charter into
+`agenraci compile --target <t> <charter.yaml>` compiles a *validated* charter into
 runtime config. v0.1 ships **stubs only**:
 
 - `humanlayer` — approval-gate routing (real emit: v0.2).

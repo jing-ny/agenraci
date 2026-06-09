@@ -12,15 +12,15 @@ shipping code, the checker catching it (rule **R1**), and the one-line fix passi
 ## Run it yourself
 ```bash
 pip install -e .
-nextraci validate docs/demo/charter-broken.yaml   # FAIL — R1
-nextraci validate docs/demo/charter-fixed.yaml    # PASS
+agenraci validate docs/demo/charter-broken.yaml   # FAIL — R1
+agenraci validate docs/demo/charter-fixed.yaml    # PASS
 ```
 
 ## What you see
 
 ```text
-$ nextraci validate docs/demo/charter-broken.yaml
-nextRACI charter: demo  (docs/demo/charter-broken.yaml)
+$ agenraci validate docs/demo/charter-broken.yaml
+AgenRACI charter: demo  (docs/demo/charter-broken.yaml)
 3 roles · 3 members · 2 action types
 
 ✗ R1 single accountable
@@ -33,8 +33,8 @@ nextRACI charter: demo  (docs/demo/charter-broken.yaml)
 
 FAIL — 1 issue(s) found.
 
-$ nextraci validate docs/demo/charter-fixed.yaml
-nextRACI charter: demo  (docs/demo/charter-fixed.yaml)
+$ agenraci validate docs/demo/charter-fixed.yaml
+AgenRACI charter: demo  (docs/demo/charter-fixed.yaml)
 3 roles · 3 members · 2 action types
 
 ✓ R1 single accountable

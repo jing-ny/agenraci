@@ -1,6 +1,6 @@
-# nextRACI — project instructions
+# AgenRACI — project instructions
 
-nextRACI is an open-source, machine-checkable RACI charter + linter for teams of
+AgenRACI is an open-source, machine-checkable RACI charter + linter for teams of
 humans and AI agents: it declares who is Responsible / Accountable / Consulted /
 Informed for each *type* of action — including when an AI agent acts with no human
 trigger — and a checker flags the gaps before they bite.
@@ -21,13 +21,13 @@ maintainer may still be bilingual.)
   actions or enforce approvals at runtime. The runtime control plane and live
   connectors (HumanLayer/LangGraph) are roadmap, not current claims. Label future
   capability as roadmap. Honest scope boxes beat hype.
-- Brand is **nextRACI** (camelCase in prose; `nextraci` as the package/CLI token).
+- Brand is **AgenRACI** (camelCase in prose; `agenraci` as the package/CLI token).
 
 ## We govern this project with its own charter
 
-nextRACI checks the operating constitution of human + AI-agent teams, so this repo
+AgenRACI checks the operating constitution of human + AI-agent teams, so this repo
 runs on one too: **`governance/charter.yaml`** is the constitution for developing
-nextRACI itself, and `nextraci validate governance/charter.yaml` must pass. It names
+AgenRACI itself, and `agenraci validate governance/charter.yaml` must pass. It names
 who is Responsible/Accountable/Consulted/Informed for each action type (set roadmap,
 implement, QA, review, merge, docs, release) and who signs off at each gate. When a
 process question comes up, the charter is the answer — not ad-hoc judgment.
@@ -56,7 +56,7 @@ change author.
 
 R1 single accountable · R2 coverage · R3 no contradiction · R4 gate completeness ·
 R5 low-risk gating · R6 acyclic authority (gate `escalate_to` edges form no cycle).
-Rule behavior in `nextraci/linter.py` is the source of truth; README/SPEC must match
+Rule behavior in `agenraci/linter.py` is the source of truth; README/SPEC must match
 it. Each active rule should have a test (one test per rule is the norm).
 
 ## Dev quickstart
@@ -65,5 +65,5 @@ it. Each active rule should have a test (one test per rule is the norm).
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest -q
-nextraci validate examples/sprout/charter.yaml
+agenraci validate examples/sprout/charter.yaml
 ```
