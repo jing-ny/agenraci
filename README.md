@@ -37,6 +37,10 @@ agenraci validate charter.yaml   # check it holds together
 Cloned the repo instead? Validate a bundled example directly:
 `agenraci validate examples/sprout/charter.yaml`.
 
+Prefer to try it without installing? A **paste-and-check playground** runs the
+real checker in your browser (nothing uploaded) — see
+[`docs/playground/`](docs/playground/).
+
 New here? Start with the essay: [**Why AgenRACI**](docs/why-agenraci.md) — the
 accountability gap, why classic RACI breaks under agentic AI, and how this fits
 ISO/IEC 42001 and the EU AI Act.

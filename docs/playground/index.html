@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AgenRACI playground — paste a charter, check it</title>
+<meta name="description" content="Paste an AgenRACI charter and run the real checker (rules R1-R6) right in your browser. Nothing is uploaded." />
+<style>
+  :root {
+    --bg: #0f1117; --panel: #1a1d27; --ink: #e6e9f0; --dim: #9aa3b2;
+    --green: #3fb950; --red: #f85149; --accent: #a371f7; --line: #2a2f3b;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header { padding: 28px 24px 12px; max-width: 1100px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  h1 .brand { color: var(--accent); }
+  header p { margin: 4px 0; color: var(--dim); }
+  header a { color: var(--accent); }
+  main {
+    max-width: 1100px; margin: 0 auto; padding: 12px 24px 48px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+  }
+  @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .panel > .bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--dim);
+  }
+  textarea {
+    width: 100%; min-height: 460px; resize: vertical; border: 0; outline: 0;
+    background: transparent; color: var(--ink); padding: 14px;
+    font-family: var(--mono); font-size: 13px; line-height: 1.55; tab-size: 2;
+  }
+  #out { padding: 14px; min-height: 460px; font-family: var(--mono); font-size: 13px; }
+  .btn {
+    background: var(--accent); color: #fff; border: 0; border-radius: 7px;
+    padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .btn:disabled { opacity: .5; cursor: progress; }
+  .controls { display: flex; align-items: center; gap: 12px; padding: 0 24px 8px;
+    max-width: 1100px; margin: 0 auto; }
+  .controls label { color: var(--dim); font-size: 13px; user-select: none; }
+  .rule { margin: 0 0 2px; }
+  .rule .ok { color: var(--green); }
+  .rule .bad { color: var(--red); }
+  .finding { color: var(--red); margin: 2px 0 2px 22px; }
+  .explain { color: var(--dim); margin: 2px 0 10px 22px; font-style: italic; }
+  .head { color: var(--ink); font-weight: 600; }
+  .sub { color: var(--dim); margin-bottom: 10px; }
+  .verdict { margin-top: 14px; font-weight: 700; }
+  .verdict.pass { color: var(--green); }
+  .verdict.fail { color: var(--red); }
+  .loading { color: var(--dim); }
+  .priv { font-size: 12px; color: var(--dim); padding: 0 24px; max-width: 1100px; margin: 0 auto 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="brand">AgenRACI</span> playground</h1>
+  <p>Paste a charter on the left, hit <strong>Check</strong>, and the real
+     checker (rules R1–R6) runs right here in your browser.</p>
+  <p><a href="https://github.com/jing-ny/agenraci">GitHub</a> ·
+     <a href="https://github.com/jing-ny/agenraci/tree/main/examples">more examples</a> ·
+     new to this? read <a href="https://github.com/jing-ny/agenraci#readme">the README</a></p>
+</header>
+
+<div class="controls">
+  <button class="btn" id="run" disabled>Loading checker…</button>
+  <label><input type="checkbox" id="explain" checked /> show the plain-language fix</label>
+  <span class="loading" id="status"></span>
+</div>
+<p class="priv">Runs entirely in your browser via Pyodide — your charter is never uploaded anywhere.</p>
+
+<main>
+  <section class="panel">
+    <div class="bar"><span>charter.yaml</span></div>
+    <textarea id="src" spellcheck="false"></textarea>
+  </section>
+  <section class="panel">
+    <div class="bar"><span>checker output</span></div>
+    <div id="out"><span class="loading">The checker is still loading…</span></div>
+  </section>
+</main>
+
+<script type="module">
+const SAMPLE = `# A small charter with two deliberate gaps — Check it, then fix them.
+project: demo
+roles: [planner, builder, reviewer]
+
+capabilities:
+  builder:  { grant: [edit_code, merge] }
+  reviewer: { deny: [edit_code] }
+
+actions:
+  ship_code:
+    responsible: builder
+    accountable: [builder, reviewer]   # two owners — R1 will flag this
+    consulted:   [reviewer]            # reviewer is denied edit_code — R4 wants a route
+    capabilities: [edit_code, merge]
+`;
+
+const srcEl = document.getElementById("src");
+const outEl = document.getElementById("out");
+const runEl = document.getElementById("run");
+const statusEl = document.getElementById("status");
+const explainEl = document.getElementById("explain");
+srcEl.value = SAMPLE;
+
+// The real checker source, loaded from this site so the playground can never
+// drift from the package. Absolute paths resolve from the deployed site root.
+const MODULES = ["__init__", "schema", "linter", "loader"];
+
+const BRIDGE = `
+import json
+from agenraci.loader import load_charter_str
+from agenraci.linter import lint, RULES, EXPLANATIONS
+from pydantic import ValidationError
+
+def check(text):
+    try:
+        charter = load_charter_str(text)
+    except ValidationError as exc:
+        errs = [{"loc": ".".join(str(p) for p in e["loc"]) or "<root>", "msg": e["msg"]}
+                for e in exc.errors()]
+        return json.dumps({"ok": False, "stage": "schema", "errors": errs})
+    except Exception as exc:
+        return json.dumps({"ok": False, "stage": "load", "message": str(exc)})
+    findings = lint(charter)
+    by_rule = {}
+    for f in findings:
+        by_rule.setdefault(f.rule, []).append({"target": f.target, "message": f.message})
+    rules = [{"id": rid, "title": title, "ok": rid not in by_rule,
+              "errors": by_rule.get(rid, []), "explain": EXPLANATIONS.get(rid, "")}
+             for rid, title, _fn in RULES]
+    return json.dumps({"ok": not findings, "stage": "lint", "project": charter.project,
+                       "counts": {"roles": len(charter.roles), "members": len(charter.members),
+                                  "actions": len(charter.actions)},
+                       "rules": rules, "total": len(findings)})
+`;
+
+let pyCheck = null;
+
+function esc(s) {
+  return String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+}
+
+function render(res) {
+  if (res.stage === "load") {
+    outEl.innerHTML = `<div class="bad">✗ could not parse the file as YAML</div>`
+      + `<div class="finding">${esc(res.message)}</div>`;
+    return;
+  }
+  if (res.stage === "schema") {
+    let h = `<div class="bad">✗ schema error — the file isn't a valid charter yet</div>`;
+    for (const e of res.errors) h += `<div class="finding">- ${esc(e.loc)}: ${esc(e.msg)}</div>`;
+    outEl.innerHTML = h;
+    return;
+  }
+  const c = res.counts;
+  let h = `<div class="head">AgenRACI charter: ${esc(res.project)}</div>`;
+  h += `<div class="sub">${c.roles} roles · ${c.members} members · ${c.actions} action types</div>`;
+  const showExplain = explainEl.checked;
+  for (const r of res.rules) {
+    if (r.ok) {
+      h += `<div class="rule"><span class="ok">✓ ${r.id}</span> ${esc(r.title)}</div>`;
+    } else {
+      h += `<div class="rule"><span class="bad">✗ ${r.id}</span> ${esc(r.title)}</div>`;
+      for (const e of r.errors) h += `<div class="finding">- ${esc(e.target)}: ${esc(e.message)}</div>`;
+      if (showExplain && r.explain) h += `<div class="explain">↳ ${esc(r.explain)}</div>`;
+    }
+  }
+  if (res.ok) {
+    h += `<div class="verdict pass">PASS — charter is a valid operating constitution.</div>`;
+  } else {
+    h += `<div class="verdict fail">FAIL — ${res.total} issue(s) found.</div>`;
+  }
+  outEl.innerHTML = h;
+}
+
+function runCheck() {
+  if (!pyCheck) return;
+  try {
+    render(JSON.parse(pyCheck(srcEl.value)));
+  } catch (err) {
+    outEl.innerHTML = `<div class="bad">✗ unexpected error</div><div class="finding">${esc(err)}</div>`;
+  }
+}
+
+async function boot() {
+  statusEl.textContent = "loading Python runtime…";
+  const { loadPyodide } = await import("https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.mjs");
+  const pyodide = await loadPyodide();
+  statusEl.textContent = "installing pydantic + pyyaml…";
+  await pyodide.loadPackage("micropip");
+  const micropip = pyodide.pyimport("micropip");
+  await micropip.install(["pydantic", "pyyaml"]);
+
+  statusEl.textContent = "loading the checker…";
+  const sources = await Promise.all(
+    MODULES.map(m => fetch(`/agenraci/${m}.py`).then(r => {
+      if (!r.ok) throw new Error(`could not load /agenraci/${m}.py (${r.status})`);
+      return r.text();
+    }))
+  );
+  pyodide.FS.mkdir("agenraci");
+  MODULES.forEach((m, i) => pyodide.FS.writeFile(`agenraci/${m}.py`, sources[i]));
+  pyodide.runPython("import sys; sys.path.insert(0, '.')");
+  pyodide.runPython(BRIDGE);
+  pyCheck = pyodide.globals.get("check");
+
+  statusEl.textContent = "";
+  runEl.disabled = false;
+  runEl.textContent = "Check";
+  runCheck();
+}
+
+runEl.addEventListener("click", runCheck);
+explainEl.addEventListener("change", runCheck);
+boot().catch(err => {
+  statusEl.textContent = "";
+  outEl.innerHTML = `<div class="bad">✗ failed to start the checker</div>`
+    + `<div class="finding">${esc(err.message || err)}</div>`
+    + `<div class="explain">You can still run it locally: pip install agenraci && agenraci validate charter.yaml</div>`;
+});
+</script>
+</body>
+</html>
