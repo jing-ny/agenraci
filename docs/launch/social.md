@@ -72,27 +72,28 @@ https://github.com/jing-ny/agenraci
 
 ---
 
-## LinkedIn (governance angle)
+## LinkedIn (personal, low-key)
 
-Most AI-accountability conversations happen at the governance level — ISO/IEC 42001, the
-EU AI Act, organizational responsibility for "the AI system as a whole."
+> Tone: you rarely post here, so keep it human — "I made a thing," not a press release.
+> Short. No jargon wall. The governance angle is one line, not the lead.
 
-There's a level below that, and it's where things actually break: the operating level.
-What happens when a *specific* agent takes a *specific* action with a *specific*
-permission — and no human triggered it?
+I don't post here often, but I built something over the past few weeks that I'm proud of,
+so I wanted to share it.
 
-AgenRACI is a small open-source tool for that level. You write one human-readable file —
-a charter — that names, for each type of action: the single accountable owner, the
-permissions it touches, who must be consulted, the approval path, and the declared
-fallback when that approval times out. A checker verifies the model is internally
-consistent and returns nonzero when it isn't, so teams can gate it in CI.
+It started with a question I kept running into: when an AI agent on a team does something
+on its own — ships code, sends a message, spends money — who's accountable? More often
+than not, that answer isn't written down anywhere.
 
-It doesn't replace ISO/IEC 42001 or the EU AI Act — it gives teams a concrete, reviewable
-artifact that can support the accountability and documentation those frameworks call for:
-a machine-checkable declaration of who owns each class of agent action.
+So I made AgenRACI: one plain file that spells it out for each kind of action — who owns
+it, who has to approve, what it's allowed to touch, and what happens if no one responds.
+A checker then flags the gaps (an action nobody owns, an approval step that could hang
+forever) so you can catch them before they bite, right in CI.
 
-v0.1 writes and checks the charter today; runtime enforcement is on the roadmap, not a
-current claim. MIT-licensed.
+To be honest about what it is: today it writes and checks that file — it doesn't enforce
+anything at runtime yet. That part is on the roadmap. It's free and open source (MIT).
+
+If you work with AI agents, or just think about accountability and governance as this
+stuff scales, I'd genuinely love your feedback.
 
 → https://github.com/jing-ny/agenraci
 
