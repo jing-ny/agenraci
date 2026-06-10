@@ -15,7 +15,7 @@ import typer
 from pydantic import ValidationError
 
 from .adapters import TARGETS
-from .linter import RULES, lint
+from .linter import EXPLANATIONS, RULES, lint
 from .loader import load_charter
 
 app = typer.Typer(
@@ -85,12 +85,8 @@ def init(
     _echo(f"  Edit it, then run: {_BOLD}agenraci validate {charter_path}{_RESET}")
 
 
-@app.command()
-def validate(
-    charter_path: Path = typer.Argument(..., exists=True, readable=True,
-                                        help="Path to charter.yaml"),
-) -> None:
-    """Validate a charter against the schema and linter rules R1-R5 (R6 stub)."""
+def _validate_one(charter_path: Path, *, explain: bool = False) -> bool:
+    """Validate a single charter, print its per-rule report, return True if clean."""
     try:
         charter = load_charter(charter_path)
     except ValidationError as exc:
@@ -98,10 +94,10 @@ def validate(
         for err in exc.errors():
             loc = ".".join(str(p) for p in err["loc"]) or "<root>"
             _echo(f"  {_RED}-{_RESET} {loc}: {err['msg']}")
-        raise typer.Exit(code=1)
+        return False
     except Exception as exc:  # malformed YAML, etc.
         _echo(f"{_RED}{_BOLD}✗ could not load{_RESET} {charter_path}: {exc}")
-        raise typer.Exit(code=1)
+        return False
 
     errors = lint(charter)
     by_rule: dict[str, list] = {}
@@ -121,6 +117,8 @@ def validate(
             _echo(f"{_RED}✗ {rule_id}{_RESET} {title}")
             for e in rule_errors:
                 _echo(f"    {_RED}-{_RESET} {e.target}: {e.message}")
+            if explain and rule_id in EXPLANATIONS:
+                _echo(f"    {_DIM}↳ {EXPLANATIONS[rule_id]}{_RESET}")
         else:
             mark = f"{_DIM}-{_RESET}" if stub else f"{_GREEN}✓{_RESET}"
             _echo(f"{mark} {rule_id} {title}")
@@ -128,8 +126,34 @@ def validate(
     _echo()
     if errors:
         _echo(f"{_RED}{_BOLD}FAIL{_RESET} — {len(errors)} issue(s) found.")
-        raise typer.Exit(code=1)
+        return False
     _echo(f"{_GREEN}{_BOLD}PASS{_RESET} — charter is a valid operating constitution.")
+    return True
+
+
+@app.command()
+def validate(
+    charter_paths: list[Path] = typer.Argument(..., exists=True, readable=True,
+                                               help="Path(s) to charter.yaml"),
+    explain: bool = typer.Option(
+        False, "--explain", "-e",
+        help="After each failing rule, print a plain-language fix in one line.",
+    ),
+) -> None:
+    """Validate one or more charters against the schema and linter rules R1-R6.
+
+    Accepting several paths lets a CI job or a pre-commit hook check every
+    charter in a repo in one call; the command exits non-zero if any fail.
+    Add --explain to turn each rule code into a plain-language fix.
+    """
+    ok = True
+    for i, charter_path in enumerate(charter_paths):
+        if i:
+            _echo(f"{_DIM}{'─' * 60}{_RESET}")
+        ok = _validate_one(charter_path, explain=explain) and ok
+
+    if not ok:
+        raise typer.Exit(code=1)
 
 
 @app.command()

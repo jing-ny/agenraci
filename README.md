@@ -37,6 +37,10 @@ agenraci validate charter.yaml   # check it holds together
 Cloned the repo instead? Validate a bundled example directly:
 `agenraci validate examples/sprout/charter.yaml`.
 
+Prefer to try it without installing? A **paste-and-check playground** runs the
+real checker in your browser (nothing uploaded) — see
+[`docs/playground/`](docs/playground/).
+
 New here? Start with the essay: [**Why AgenRACI**](docs/why-agenraci.md) — the
 accountability gap, why classic RACI breaks under agentic AI, and how this fits
 ISO/IEC 42001 and the EU AI Act.
@@ -46,7 +50,7 @@ ISO/IEC 42001 and the EU AI Act.
 A charter where two roles both think they're accountable for shipping code — the
 checker catches it (rule **R1**), and the one-line fix passes:
 
-<!-- demo-gif: after `vhs docs/demo/demo.tape`, embed ![demo](docs/demo/demo.gif) here -->
+![AgenRACI catching a two-accountable conflict, then passing once fixed](docs/demo/demo.gif)
 
 ```text
 $ agenraci validate docs/demo/charter-broken.yaml
@@ -141,10 +145,45 @@ backdoor for an agent to act unsupervised.
 
 ```bash
 agenraci init [path]                             # write a commented starter charter (default: charter.yaml)
-agenraci validate <charter.yaml>                 # parse + check, with a per-rule report
+agenraci validate <charter.yaml> [more.yaml...]  # parse + check, with a per-rule report
+agenraci validate --explain <charter.yaml>       # ...and a plain-language fix under each failure
 agenraci compile --target humanlayer <charter>   # placeholder in v0.1
 agenraci compile --target langgraph  <charter>   # placeholder in v0.1
 ```
+
+## Keep the charter honest in CI
+
+A charter only protects you if it stays valid as it changes. Two ways to enforce
+that automatically:
+
+**GitHub Action** — fail a PR that breaks the charter:
+
+```yaml
+# .github/workflows/charter.yml
+on: [push, pull_request]
+jobs:
+  charter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jing-ny/agenraci@v0.1.0
+        with:
+          charter: charter.yaml      # a path, or a glob like 'governance/*.yaml'
+```
+
+**pre-commit hook** — catch it before it's even committed:
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/jing-ny/agenraci
+    rev: v0.1.0
+    hooks:
+      - id: agenraci-validate        # checks staged charter.yaml / charter.yml files
+```
+
+`agenraci validate` takes one or more paths, so a single call checks every
+charter in the repo and exits non-zero if any fails.
 
 ## Repository layout
 
@@ -155,6 +194,7 @@ agenraci/
 ├── agenraci/            # the Python package (schema, checker, cli, connectors,
 │                        #   and the starter template `agenraci init` writes)
 ├── governance/          # AgenRACI's own charter — the project governs itself
+├── examples/autopilot/    # ★ flagship: an autonomous coding team (1 human + 4 agents)
 ├── examples/hello-world/  # the smallest meaningful charter (1 human + 1 agent)
 ├── examples/blog/         # one step up: a gate + separation of powers (1 human + 2 agents)
 ├── examples/sprout/       # a complete worked example (2 humans + 6 agents)
@@ -164,15 +204,16 @@ agenraci/
 
 ## Roadmap
 
-- **v0.1 — write it and check it.** The charter format, the checker (R1–R6), the
-  Sprout example, and a template. ← you are here
+- **v0.1 — write it and check it.** The charter format, the checker (R1–R6) with
+  `validate --explain` plain-language fixes, worked examples (the Autopilot
+  flagship + others), a template, a GitHub Action, and a pre-commit hook. ← you are here
 - **v0.2 — first live connector.** A working HumanLayer connector that turns a
   charter into real approval gates, plus a richer authority graph beyond gate
   `escalate_to` edges (standing veto relations).
 - **v0.3 — LangGraph connector** + a small web view that renders the chart so
   non-engineers can read it.
-- **v0.4 — `agenraci lint --explain`** that names each gap or conflict in plain
-  language and suggests a fix.
+- **v0.4 — author ergonomics.** Inline checker findings in an editor, and a
+  reference mode that explains any rule on demand.
 
 ## FAQ
 

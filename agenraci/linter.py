@@ -264,6 +264,31 @@ RULES = [
 ]
 
 
+# Plain-language "what this means and how to fix it", keyed by rule id. Used by
+# `agenraci validate --explain` and the web playground, so both read one source.
+EXPLANATIONS: dict[str, str] = {
+    "R1": "Every action needs exactly one accountable role — the single person "
+          "who answers for the outcome. If two claim it, decide who finally owns "
+          "it and move the other to consulted; if none does, name the owner.",
+    "R2": "Permissions and actions must line up. Either have some action use this "
+          "capability, or drop it from the role's grant/deny — and any capability "
+          "an action touches must first be declared on a role.",
+    "R3": "A role can't both grant and deny the same capability. Pick one: if you "
+          "mean to forbid it, remove it from grant; if you mean to allow it, "
+          "remove it from deny.",
+    "R4": "An approval step must never be able to deadlock the team. Give the gate "
+          "a break_glass (an emergency path with a named owner), and give any "
+          "consulted-but-denied role a suggestion_route so its objection has "
+          "somewhere to go instead of being silently dropped.",
+    "R5": "Letting an action proceed on timeout is only allowed when it's tagged "
+          "low_risk: true. Either mark the action low_risk (if it truly is), or "
+          "change on_timeout to 'block' or 'escalate_to:<role>'.",
+    "R6": "Escalations form a loop, so a decision could escalate forever with "
+          "nobody able to settle it. Break the cycle — point one gate's "
+          "escalate_to at a role that can finally decide (often the human owner).",
+}
+
+
 def lint(charter: Charter) -> list[LintError]:
     """Run every rule and return all findings, in rule order."""
     errors: list[LintError] = []

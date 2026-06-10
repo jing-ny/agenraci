@@ -1,0 +1,41 @@
+name: AgenRACI validate
+description: Check that an AgenRACI charter holds together — rules R1-R6 (one accountable, coverage, no contradiction, gate completeness, low-risk gating, acyclic authority).
+author: AgenRACI contributors
+branding:
+  icon: check-circle
+  color: purple
+
+inputs:
+  charter:
+    description: Path or shell glob of the charter file(s) to validate.
+    required: false
+    default: charter.yaml
+  python-version:
+    description: Python version to run the checker on.
+    required: false
+    default: "3.12"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install AgenRACI
+      shell: bash
+      # Install from the action's own pinned checkout, so the checker version
+      # always matches the `uses: jing-ny/agenraci@<ref>` you pinned.
+      run: pip install "${{ github.action_path }}"
+
+    - name: Validate charter(s)
+      shell: bash
+      run: |
+        shopt -s nullglob
+        files=( ${{ inputs.charter }} )
+        if [ ${#files[@]} -eq 0 ]; then
+          echo "::error::no charter files matched '${{ inputs.charter }}'"
+          exit 1
+        fi
+        agenraci validate "${files[@]}"
