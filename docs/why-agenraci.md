@@ -81,7 +81,7 @@ AgenRACI makes those distinctions explicit.
 
 ## What a charter contains
 
-A AgenRACI charter defines a small set of roles once, such as:
+An AgenRACI charter defines a small set of roles once, such as:
 
 * orchestrator
 * engineer
@@ -150,19 +150,19 @@ AgenRACI does not currently run your agents.
 
 It does not intercept tool calls, enforce approvals at runtime, pause workflows, or decide whether a specific action should proceed in the moment.
 
-Tools such as LangGraph, CrewAI, and HumanLayer can orchestrate agents and introduce human approval gates. AgenRACI sits one level above that. It answers the operating question those systems still need from the team:
+Tools such as LangGraph and CrewAI can orchestrate agents, and HumanLayer can add human approval gates. AgenRACI sits one level above that. It answers the operating question those systems still need from the team:
 
 *For this action, on this team, who is allowed to do what — and who owns the outcome?*
 
 Runtime enforcement is the roadmap, not a current claim.
 
-The next milestone is to compile a AgenRACI charter into live approval gates, starting with a HumanLayer connector. A later milestone is a team-wide authority graph that can detect impossible loops, circular escalation, and conflicting override rules.
+The next milestone is to compile an AgenRACI charter into live approval gates, starting with a HumanLayer connector. A later milestone is a team-wide authority graph that can detect impossible loops, circular escalation, and conflicting override rules.
 
 ## How AgenRACI relates to AI governance frameworks
 
 There are two levels of AI accountability.
 
-The first is the **governance level**: policies, management systems, risk classification, compliance obligations, audit evidence, and board-level responsibility.
+The first is the **governance level**: policies, management systems, risk classification, compliance obligations, audit evidence, and organizational responsibility.
 
 That is the level addressed by frameworks and regulations such as ISO/IEC 42001 and the EU AI Act.
 
@@ -170,11 +170,11 @@ The second is the **operating level**: the day-to-day question of what happens w
 
 AgenRACI lives at the operating level.
 
-It does not replace governance frameworks. It gives teams a concrete artifact those frameworks often require but do not prescribe in detail: a verifiable map of who owns each class of agent action, what the agent may touch, who must be consulted, and what should happen when normal approval paths fail.
+It does not replace governance frameworks. It gives teams a concrete artifact that can support what those frameworks call for but do not prescribe in detail: a machine-checkable declaration of who owns each class of agent action, what the agent may touch, who must be consulted, and what should happen when normal approval paths fail.
 
 In an audit or incident review, AgenRACI should let a team point to a file and say:
 
-*This is the charter that governed that action. It named the accountable owner, the agent's permissions, the required approval path, the timeout behavior, and the emergency override rule. The checker verified that the model was internally consistent.*
+*This is the charter that defined how that class of action was meant to be governed. It named the accountable owner, the agent's permissions, the required approval path, the timeout behavior, and the emergency override rule. The checker verified that the model was internally consistent.*
 
 Governance frameworks tell organizations they need accountability.
 

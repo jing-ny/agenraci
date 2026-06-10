@@ -4,7 +4,8 @@
 > `~/.gstack/projects/nextraci/launch-plan-20260603.md`. Check items off as they ship.
 
 **State:** renamed to **AgenRACI** (sidesteps the `next` IP gate) · v0.1 code on `main` ·
-PyPI name `agenraci` to be claimed · 4 project agents + CLAUDE.md merged · issues #1–#9 open.
+PyPI name `agenraci` **claimed** (placeholder `0.1.0a0`) · essay + FAQ + R6 + tag-driven
+PyPI publish all merged · launch-adds re-landing via PR [#29](https://github.com/jing-ny/agenraci/pull/29) (see [#28](https://github.com/jing-ny/agenraci/issues/28)).
 
 **Goal of this window:** go from "code pushed" to a credible, launchable **0.1.0** with
 one strong public moment — without over-promising the v0.2 runtime control plane.
@@ -25,27 +26,31 @@ one strong public moment — without over-promising the v0.2 runtime control pla
 - [x] README badges + GitHub topics & description — [#5](https://github.com/jing-ny/agenraci/issues/5)
 - [x] Seed good first issues — [#6](https://github.com/jing-ny/agenraci/issues/6) → opened [#10](https://github.com/jing-ny/agenraci/issues/10) [#11](https://github.com/jing-ny/agenraci/issues/11) [#12](https://github.com/jing-ny/agenraci/issues/12)
 
-## Launch-impact adds (CEO-review picks) — shipped in PR [#27](https://github.com/jing-ny/agenraci/pull/27)
+## Launch-impact adds (CEO-review picks) — re-landing on `main` via PR [#29](https://github.com/jing-ny/agenraci/pull/29)
+> Built in PR #27 but stranded off `main` by a stacked-merge ordering bug ([#28](https://github.com/jing-ny/agenraci/issues/28)); #29 re-lands them.
 - [x] Flagship `examples/autopilot/` (autonomous coding team, 1 human + 4 agents) + demo GIF
 - [x] GitHub Action (`action.yml`) + pre-commit hook (`.pre-commit-hooks.yaml`); `validate` takes many paths
 - [x] `agenraci validate --explain` (plain-language fix per failing rule)
 - [x] Browser playground (`docs/playground/`, Pyodide) + `vercel.json` to deploy it
 
 ## Phase 1 — Essay + assets (Week 1-2)
-- [ ] Launch essay `docs/why-agenraci.md` (~800-1200 words, broad audience) — [#7](https://github.com/jing-ny/agenraci/issues/7)
-- [ ] FAQ: RBAC / HumanLayer / vaporware objections — [#9](https://github.com/jing-ny/agenraci/issues/9)
-- [ ] Show HN draft + X / LinkedIn / Reddit copy
+- [x] Launch essay `docs/why-agenraci.md` (~800-1200 words, broad audience) — [#7](https://github.com/jing-ny/agenraci/issues/7) (merged; light polish in this PR)
+- [x] FAQ: RBAC / HumanLayer / vaporware objections — [#9](https://github.com/jing-ny/agenraci/issues/9) (in README)
+- [ ] Show HN draft + X / LinkedIn / Reddit copy → `docs/launch/` (this PR)
 
 ## Phase 2 — Launch day (Week 2, Tue-Thu AM ET)
-- [ ] 0.1.0 release readiness checklist green — [#2](https://github.com/jing-ny/agenraci/issues/2)
-- [ ] Publish real **0.1.0** to PyPI (replaces 0.0.0 placeholder)
+- [ ] Merge PR #29 (launch-adds) to `main` first, then the Phase 1 copy PR
+- [ ] One-time PyPI **Trusted Publishing** setup (OIDC, no token) per `RELEASING.md` — release plumbing already merged (#2, `publish.yml`)
+- [ ] Publish real **0.1.0**: `git tag v0.1.0 && git push origin v0.1.0` → Actions builds + publishes (supersedes the `0.1.0a0` placeholder)
+- [ ] Deploy playground to Vercel (import repo; `vercel.json` ready — needs #29 on `main`)
+- [ ] Cut GitHub Release `v0.1.0`
 - [ ] Post Show HN + essay; author present in comments first 6-8h
 - [ ] Cross-post (staggered): X thread, LinkedIn (governance angle), relevant subreddits
 - [ ] Share in LangChain/LangGraph Discord, HumanLayer community, AI-governance circles
 
 ## Phase 3 — Post-launch (Week 2-3)
 - [ ] Triage issues/PRs/comments fast (sets whether contributors return)
-- [ ] Ship R6 acyclic-authority check (de-stub) as first visible v0.2 increment — [#8](https://github.com/jing-ny/agenraci/issues/8)
+- [x] Ship R6 acyclic-authority check — [#8](https://github.com/jing-ny/agenraci/issues/8) (already active in `linter.py`); pick a fresh first v0.2 increment (e.g. HumanLayer connector spike)
 - [ ] Write "what I learned launching" retro post
 - [ ] Measure: stars, PyPI downloads, unique visitors — watch for *real adopters*, not vanity metrics
 
