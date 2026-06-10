@@ -76,6 +76,11 @@ https://github.com/jing-ny/agenraci
 
 > Tone: you rarely post here, so keep it human — "I made a thing," not a press release.
 > Short. No jargon wall. The governance angle is one line, not the lead.
+>
+> Attach the demo GIF (`docs/demo/demo.gif`) as a native image upload — LinkedIn favors
+> native media over plain link posts, and the GIF shows the checker catching a broken
+> charter faster than the text can explain it. Upload the file directly; don't just paste
+> the repo link and rely on the unfurl preview.
 
 I don't post here often, but I built something over the past few weeks that I'm proud of,
 so I wanted to share it.
