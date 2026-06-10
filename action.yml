@@ -1,5 +1,5 @@
 name: AgenRACI validate
-description: Check that an AgenRACI charter holds together — rules R1-R6 (one accountable, coverage, no contradiction, gate completeness, low-risk gating, acyclic authority).
+description: Validate an AgenRACI accountability charter (rules R1-R6) and fail CI on any gap.
 author: AgenRACI contributors
 branding:
   icon: check-circle
