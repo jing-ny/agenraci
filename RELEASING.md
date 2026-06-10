@@ -1,6 +1,6 @@
 # Releasing AgenRACI
 
-The 0.1.0 release replaces the `0.0.0` PyPI placeholder with the first real
+The 0.1.0 release replaces the `0.1.0a0` PyPI placeholder with the first real
 package. Publishing is **tag-driven and reproducible**: a maintainer pushes a
 `vX.Y.Z` tag, and the [`publish.yml`](.github/workflows/publish.yml) workflow
 builds, checks, and uploads to PyPI. No one runs `twine upload` by hand, and no
@@ -11,8 +11,8 @@ API token is stored in the repo (PyPI Trusted Publishing is used instead).
 Do this once, before the first tag-driven release. It lets GitHub Actions publish
 without any long-lived token.
 
-1. On PyPI, create (or claim) the `agenraci` project — the `0.0.0` placeholder
-   already reserves the name.
+1. On PyPI, create (or claim) the `agenraci` project — the `0.1.0a0` placeholder
+   (a pre-release, so `pip install agenraci` won't pull it) already reserves the name.
 2. In the project's **Settings → Publishing**, add a **Trusted Publisher**:
    - Owner: `jing-ny`
    - Repository: `agenraci`
