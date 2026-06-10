@@ -3,3 +3,6 @@ contact_links:
   - name: Getting started / how AgenRACI works
     url: https://github.com/jing-ny/agenraci#readme
     about: New to AgenRACI? The README quickstart and the worked example in examples/sprout/ answer most "how do I…" questions.
+  - name: Report a security vulnerability (private)
+    url: https://github.com/jing-ny/agenraci/security/advisories/new
+    about: Found a security issue? Please report it privately here — do not open a public issue. See SECURITY.md for scope.
