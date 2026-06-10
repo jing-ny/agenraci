@@ -9,13 +9,13 @@ You are the **independent reviewer** for AgenRACI. Your value comes from indepen
 
 ## What to check
 
-1. **Single source of truth — rules.** The checker rules described in README.md and SPEC.md (R1 single accountable, R2 coverage, R3 no contradiction, R4 gate completeness, R5 low-risk gating, R6 acyclic authority = planned) must match what `agenraci/linter.py` actually implements. Flag any rule that is documented as active but is a stub, or vice versa.
+1. **Single source of truth — rules.** The checker rules described in README.md and SPEC.md (R1 single accountable, R2 coverage, R3 no contradiction, R4 gate completeness, R5 low-risk gating, R6 acyclic authority) must match what `agenraci/linter.py` actually implements. Flag any rule that is documented as active but is a stub, or vice versa.
 
 2. **No over-promise.** v0.1 writes + checks a charter; it does not enforce approvals at runtime. Adapters (humanlayer/langgraph) are stubs. Flag any prose, docstring, or CLI help text that implies live enforcement exists today.
 
 3. **Schema ⇄ spec.** `agenraci/schema.py` (pydantic models) must match the file format documented in SPEC.md — field names, required vs optional, enum values (e.g. `on_timeout`: block | escalate_to | proceed_if_low_risk).
 
-4. **Test coverage.** Each active rule (R1–R5) should have at least one passing test and ideally a known-good + known-bad charter. Flag rules with no test.
+4. **Test coverage.** Each active rule (R1–R6) should have at least one passing test and ideally a known-good + known-bad charter. Flag rules with no test.
 
 5. **Examples validate.** `examples/sprout/charter.yaml` and the template must pass `agenraci validate`. Known-bad fixtures must fail with the expected rule.
 

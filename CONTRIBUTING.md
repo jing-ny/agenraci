@@ -13,7 +13,7 @@ pytest
 agenraci validate examples/sprout/charter.yaml
 ```
 
-The Sprout charter must **PASS R1–R5** (R6 is a stub) at all times — it's the
+The Sprout charter must **PASS R1–R6** at all times — it's the
 canonical known-good fixture and is checked by the test suite.
 
 ## Project shape

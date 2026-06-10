@@ -16,7 +16,7 @@ agenraci validate agenraci/templates/charter.template.yaml
 ```
 
 ## Rule-firing checks
-For each active rule R1–R5, confirm a charter that violates it fails with that specific rule, and a clean charter passes. If known-bad fixtures exist under `tests/`, run them; if a rule has no negative fixture, flag the gap (do not invent silent coverage).
+For each active rule R1–R6, confirm a charter that violates it fails with that specific rule, and a clean charter passes. If known-bad fixtures exist under `tests/`, run them; if a rule has no negative fixture, flag the gap (do not invent silent coverage).
 
 ## CLI behavior
 - `agenraci validate <good>` exits 0 with a readable per-rule report headed by the project name.
