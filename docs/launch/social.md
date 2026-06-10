@@ -101,8 +101,16 @@ current claim. MIT-licensed.
 ## Reddit
 
 **Candidate subreddits** (read each one's self-promotion rules first; space them out,
-don't blast all at once): r/programming, r/ExperiencedDevs, r/devops, r/LLMDevs,
-r/AI_Agents. Lead with the problem, not the pitch — Reddit punishes marketing tone.
+don't blast all at once). Recommended order for a low-karma account: **r/LLMDevs** (lead,
+use Variant A) → a few hours later **r/AI_Agents** (use Variant B — reworded to avoid
+crosspost-spam detection). r/devops only from the CI/accountability angle; r/programming
+and r/ExperiencedDevs are self-promo-hostile and tend to auto-filter low-karma posts —
+skip unless you've built some karma. Lead with the problem, not the pitch.
+
+> After posting, open the link in a logged-out/incognito window. If it 404s, AutoModerator
+> filtered it — message modmail politely to ask for manual approval.
+
+### Variant A — r/LLMDevs (lead)
 
 **Title:**
 AgenRACI: a machine-checkable "who's accountable when an AI agent acts" charter for your repo
@@ -129,5 +137,40 @@ There's a browser playground that runs the real checker (no install) —
 https://agenraci.vercel.app/ — worked examples, and the project governs itself with its
 own charter. I'd genuinely like to hear where the model is wrong or where the rules don't
 catch the failure modes your team actually hits.
+
+Repo: https://github.com/jing-ny/agenraci
+
+### Variant B — r/AI_Agents (post second, reworded)
+
+**Title:**
+When your agent opens a PR or spends money with no human in the loop, who's on the hook? I built a checker for that.
+
+**Body:**
+I build with agents, and the thing that keeps biting me has nothing to do with model
+quality: the moment an agent acts on its own — opens a PR, emails a customer, moves money
+— there's usually no written answer for who's accountable, what it was allowed to touch,
+or whose call wins when two roles disagree. It lives in code, scattered config, and
+people's heads.
+
+AgenRACI is my attempt to make that explicit and checkable. You write one YAML file (a
+"charter") that states, per *type* of action: who performs it, the single accountable
+owner, who's consulted/informed, the permissions it touches, the required approval, and
+what happens when an approver never responds (timeout + break-glass). A checker then
+verifies the file holds together and exits nonzero, so it runs as a CI gate or a
+pre-commit hook.
+
+What it catches: an action with no accountable owner, two roles both claiming
+accountability, a permission you granted but never use, an approval path with no timeout
+(silent deadlock), or an escalation chain that loops forever.
+
+Honest about scope: it **writes and checks** the charter — it does not intercept tool
+calls or enforce approvals at runtime. LangGraph/CrewAI run the agents; HumanLayer adds
+the human-approval step. This is the framework-independent layer above them that declares
+the rules, so your accountability map survives switching runtimes.
+
+There's a browser playground that runs the real checker via Pyodide, no install —
+https://agenraci.vercel.app/ — plus worked examples (including an all-agent, zero-human
+team), and the repo governs its own development with a charter. I'd love to hear where the
+model breaks for your setup, especially multi-agent teams.
 
 Repo: https://github.com/jing-ny/agenraci
