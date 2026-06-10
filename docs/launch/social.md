@@ -17,8 +17,8 @@ Who's accountable?
 On a lot of teams that answer isn't written down anywhere. So I built AgenRACI. 🧵
 
 **2/**
-RACI — Responsible, Accountable, Consulted, Informed — is the old chart for "who owns
-what work."
+RACI — Responsible, Accountable, Consulted, Informed — is the classic framework for "who
+owns what work."
 
 It has no native slot for a machine actor, the permissions it holds, an approval
 timeout, or an escalation path — exactly what you need once an agent acts on its own
@@ -49,7 +49,7 @@ A checker reads the charter and flags the structural gaps that bite later — re
 nonzero so you can gate CI on it:
 
 • nobody accountable
-• two roles both claiming one action
+• two roles both claiming accountability for one action
 • a permission granted but never used
 • an approval path with no timeout
 • an escalation chain that loops forever
@@ -63,7 +63,7 @@ do what, and who breaks a tie* — independent of your runtime.
 
 **7/**
 `pip install agenraci`, or try the browser playground (runs the real checker via Pyodide,
-no install).
+no install): https://agenraci.vercel.app/
 
 Open source, MIT. The project even governs itself with its own charter.
 
@@ -116,7 +116,7 @@ escalation path, so they don't quite fit.
 AgenRACI is an open-source attempt at the operating-level answer. You write one file that
 declares, per *type* of action: who does it, the single accountable owner, who's
 consulted/informed, what permissions it touches, the approval path, and the declared
-timeout + break-glass behavior. A checker flags structural gaps (no owner, two owners,
+timeout + break-glass behavior. A checker flags structural gaps (no accountable owner, two roles claiming accountability,
 dead permissions, approval paths with no timeout, escalation loops) and returns nonzero,
 so you can gate it in CI.
 
@@ -125,8 +125,9 @@ tool calls or enforce approvals at runtime (LangGraph/CrewAI run agents; HumanLa
 human approval steps). It's the framework-independent declaration layer those runtimes
 could consume later.
 
-There's a browser playground that runs the real checker (no install), worked examples,
-and the project governs itself with its own charter. I'd genuinely like to hear where the
-model is wrong or where the rules don't match how your team breaks.
+There's a browser playground that runs the real checker (no install) —
+https://agenraci.vercel.app/ — worked examples, and the project governs itself with its
+own charter. I'd genuinely like to hear where the model is wrong or where the rules don't
+catch the failure modes your team actually hits.
 
 Repo: https://github.com/jing-ny/agenraci
