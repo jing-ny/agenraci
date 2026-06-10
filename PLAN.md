@@ -6,8 +6,10 @@
 **State:** renamed to **AgenRACI** (sidesteps the `next` IP gate) · v0.1 code on `main` ·
 PyPI name `agenraci` **claimed** (placeholder `0.1.0a0`) · all launch assets merged to
 `main` and **launch-ready**: essay + FAQ + R6 + tag-driven publish + launch-adds (#29) +
-Phase 1 copy (#34) + GitHub templates (#35) + R6-active doc sweep (#37). Remaining work
-is the human launch-day runbook below (PyPI Trusted Publishing → tag → Vercel → post).
+Phase 1 copy (#34) + GitHub templates (#35) + R6-active doc sweep (#37). **0.1.0 shipped
+2026-06-10**: live on PyPI (<https://pypi.org/project/agenraci/0.1.0/>), GitHub Release +
+Marketplace Action published, playground live (<https://agenraci.vercel.app/>). Remaining
+work is the public launch (Show HN + staggered social) and post-launch triage.
 
 **Goal of this window:** go from "code pushed" to a credible, launchable **0.1.0** with
 one strong public moment — without over-promising the v0.2 runtime control plane.
@@ -20,22 +22,22 @@ one strong public moment — without over-promising the v0.2 runtime control pla
 > PyPI / Vercel / GitHub account actions and public posting. Check off as you go.
 
 **1. Pre-flight (can do now, before launch morning)**
-- [ ] Run the local build smoke test green (see `RELEASING.md` → Readiness checklist):
+- [x] Run the local build smoke test green (see `RELEASING.md` → Readiness checklist):
       `python -m build` · `twine check dist/*` · fresh-venv `pip install dist/agenraci-*.whl` · `agenraci --version` · `agenraci validate examples/sprout/charter.yaml`
-- [ ] Confirm CI is green on `main` (Actions tab).
-- [ ] **One-time PyPI Trusted Publishing setup** (OIDC, no token) per `RELEASING.md`:
+- [x] Confirm CI is green on `main` (Actions tab).
+- [x] **One-time PyPI Trusted Publishing setup** (OIDC, no token) per `RELEASING.md`:
       PyPI `agenraci` → Settings → Publishing → add Trusted Publisher (owner `jing-ny`,
       repo `agenraci`, workflow `publish.yml`, environment `pypi`); then create the
       `pypi` Environment in GitHub repo settings (optional: required reviewer to gate upload).
 
-**2. Ship the package (launch morning, Tue–Thu AM ET)**
-- [ ] Confirm `pyproject.toml` version is `0.1.0`, committed on `main`.
-- [ ] Tag + push: `git tag v0.1.0 && git push origin v0.1.0` → `publish.yml` builds + uploads (supersedes the `0.1.0a0` placeholder).
-- [ ] Verify live: <https://pypi.org/project/agenraci/> · `pip install agenraci` in a clean venv · `agenraci validate examples/sprout/charter.yaml`.
-- [ ] **Cut GitHub Release `v0.1.0`** using the notes in `docs/launch/release-notes-v0.1.0.md`.
+**2. Ship the package (launch morning, Tue–Thu AM ET)** ✅ done 2026-06-10
+- [x] Confirm `pyproject.toml` version is `0.1.0`, committed on `main`.
+- [x] Tag + push: `git tag v0.1.0 && git push origin v0.1.0` → `publish.yml` builds + uploads (supersedes the `0.1.0a0` placeholder). _(Published via the GitHub Release, which created the tag.)_
+- [x] Verify live: <https://pypi.org/project/agenraci/0.1.0/> · `pip install agenraci==0.1.0` in a clean venv · `agenraci validate examples/sprout/charter.yaml` (R1–R6 PASS).
+- [x] **Cut GitHub Release `v0.1.0`** using the notes in `docs/launch/release-notes-v0.1.0.md`. _(Also published the Marketplace Action: CI + Code quality categories.)_
 
-**3. Deploy the playground**
-- [ ] Import the repo at `vercel.com/new` (one-time; `vercel.json` already points at `docs/playground/`). Confirm the deployed page runs the checker (Pyodide).
+**3. Deploy the playground** ✅ done 2026-06-10
+- [x] Import the repo at `vercel.com/new` (one-time; `vercel.json` already points at `docs/playground/`). Confirm the deployed page runs the checker (Pyodide). _Live at <https://agenraci.vercel.app/>; fixed a root-rewrite 404 (cleanUrls) so `/` serves the playground._
 
 **4. Go public (author present in comments first 6–8h)**
 - [ ] Post **Show HN** (`docs/launch/show-hn.md`) + link the essay.
@@ -43,7 +45,7 @@ one strong public moment — without over-promising the v0.2 runtime control pla
 - [ ] Share in LangChain/LangGraph Discord, HumanLayer community, AI-governance circles.
 
 **5. After**
-- [ ] Triage issues/PRs/comments fast — point newcomers at the seeded good-first-issues (#30–#33).
+- [ ] Triage issues/PRs/comments fast — point newcomers at the seeded good-first-issues (#30–#33, #40).
 - [ ] Bump `pyproject.toml` to the next dev version on `main`.
 
 ---
