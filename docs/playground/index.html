@@ -42,6 +42,8 @@
     padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
   }
   .btn:disabled { opacity: .5; cursor: progress; }
+  .btn.secondary { background: transparent; border: 1px solid var(--line); color: var(--dim); font-weight: 500; }
+  .btn.secondary:hover { color: var(--ink); border-color: var(--accent); }
   .controls { display: flex; align-items: center; gap: 12px; padding: 0 24px 8px;
     max-width: 1100px; margin: 0 auto; }
   .controls label { color: var(--dim); font-size: 13px; user-select: none; }
@@ -71,6 +73,7 @@
 
 <div class="controls">
   <button class="btn" id="run" disabled>Loading checker…</button>
+  <button class="btn secondary" id="share" title="Copy a link that reopens this exact charter">Share</button>
   <label><input type="checkbox" id="explain" checked /> show the plain-language fix</label>
   <span class="loading" id="status"></span>
 </div>
@@ -109,7 +112,41 @@ const outEl = document.getElementById("out");
 const runEl = document.getElementById("run");
 const statusEl = document.getElementById("status");
 const explainEl = document.getElementById("explain");
-srcEl.value = SAMPLE;
+const shareEl = document.getElementById("share");
+
+// Share = encode the charter into the URL fragment (UTF-8-safe base64url). It
+// lives in the #fragment, which the browser never sends to the server — so a
+// shared link still honours "your charter is never uploaded anywhere".
+function encodeCharter(text) {
+  const bytes = new TextEncoder().encode(text);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function decodeCharter(s) {
+  s = s.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(s);
+  return new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)));
+}
+
+// Open a shared charter if the link carries one; otherwise show the sample.
+const shared = (location.hash.match(/[#&]c=([^&]+)/) || [])[1];
+let initial = SAMPLE;
+if (shared) {
+  try { initial = decodeCharter(shared); }
+  catch { /* malformed fragment — fall back to the sample */ }
+}
+srcEl.value = initial;
+
+shareEl.addEventListener("click", async () => {
+  const frag = "#c=" + encodeCharter(srcEl.value);
+  history.replaceState(null, "", location.pathname + frag);
+  const url = location.origin + location.pathname + frag;
+  let ok = false;
+  try { await navigator.clipboard.writeText(url); ok = true; } catch { /* clipboard blocked */ }
+  shareEl.textContent = ok ? "Link copied!" : "Link in address bar";
+  setTimeout(() => { shareEl.textContent = "Share"; }, 1800);
+});
 
 // The real checker source, loaded from this site so the playground can never
 // drift from the package. Absolute paths resolve from the deployed site root.
