@@ -30,7 +30,7 @@ charter rides in the `#fragment`, which is never sent to a server, so it still
 honors "your charter is never uploaded."
 
 **A cookbook for the "I already run agents" reader.**
-[From a running agent team to a charter](../cookbook/from-agents-to-a-charter.md)
+[From a running agent team to a charter](https://github.com/jing-ny/agenraci/blob/main/docs/cookbook/from-agents-to-a-charter.md)
 maps a LangGraph / CrewAI / Claude-subagent setup to a charter step by step, using
 this repo's own `.claude/agents/` ↔ `governance/charter.yaml` as the worked example.
 
