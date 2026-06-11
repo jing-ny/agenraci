@@ -14,7 +14,7 @@ from pathlib import Path
 import typer
 from pydantic import ValidationError
 
-from .adapters import TARGETS
+from .adapters import STUB_TARGETS, TARGETS
 from .linter import EXPLANATIONS, RULES, lint
 from .loader import load_charter
 
@@ -190,9 +190,15 @@ def compile(  # noqa: A001 - this is the user-facing verb
     charter_path: Path = typer.Argument(..., exists=True, readable=True,
                                         help="Path to charter.yaml"),
     target: str = typer.Option(..., "--target", "-t",
-                               help="humanlayer | langgraph"),
+                               help="github | humanlayer | langgraph"),
 ) -> None:
-    """Compile a charter into runtime config for a target tool (STUB in v0.1)."""
+    """Compile a validated charter into config for a target tool.
+
+    `github` is real — it emits CODEOWNERS + branch-protection guidance from the
+    charter's gates and accountability. `humanlayer` and `langgraph` are stubs in
+    v0.1. Either way AgenRACI emits config a human applies; it never enforces at
+    runtime.
+    """
     if target not in TARGETS:
         _echo(f"{_RED}unknown target {target!r}.{_RESET} "
               f"choose one of: {', '.join(sorted(TARGETS))}")
@@ -200,7 +206,7 @@ def compile(  # noqa: A001 - this is the user-facing verb
 
     try:
         charter = load_charter(charter_path)
-    except (ValidationError, Exception) as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - schema error, malformed YAML, etc.
         _echo(f"{_RED}✗ could not load {charter_path}:{_RESET} {exc}")
         raise typer.Exit(code=1)
 
@@ -211,7 +217,8 @@ def compile(  # noqa: A001 - this is the user-facing verb
               f"{len(errors)} linter rule(s). Run `agenraci validate` first.")
         raise typer.Exit(code=1)
 
-    _echo(f"{_DIM}# agenraci compile --target {target} (STUB){_RESET}")
+    if target in STUB_TARGETS:
+        _echo(f"{_DIM}# agenraci compile --target {target} (STUB){_RESET}")
     _echo(TARGETS[target](charter))
 
 

@@ -191,12 +191,19 @@ action/role.
 ## 8. Adapters
 
 `agenraci compile --target <t> <charter.yaml>` compiles a *validated* charter into
-runtime config. v0.1 ships **stubs only**:
+config for an existing tool. The emit is config a human reviews and applies — not
+runtime enforcement.
 
-- `humanlayer` — approval-gate routing (real emit: v0.2).
-- `langgraph` — interrupt/checkpoint nodes (real emit: v0.3).
+- `github` — **real**. Emits a CODEOWNERS starting point (humans accountable for
+  gated actions) and a branch-protection checklist derived from each gate
+  (required approver, whether timeout may auto-proceed, break-glass). Because a
+  charter governs action *types*, not file paths, the CODEOWNERS lines are a
+  scaffold to scope; a gate whose approver role has no human member is flagged.
+- `humanlayer` — **stub**: approval-gate routing (real emit: v0.2).
+- `langgraph` — **stub**: interrupt/checkpoint nodes (real emit: v0.3).
 
-The CLI refuses to compile a charter that fails any linter rule.
+The CLI refuses to compile a charter that fails any linter rule, and labels the
+stub targets `(STUB)` in their output.
 
 ### Other CLI surfaces
 

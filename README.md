@@ -153,6 +153,7 @@ agenraci validate <charter.yaml> [more.yaml...]  # parse + check, with a per-rul
 agenraci validate --explain <charter.yaml>       # ...and a plain-language fix under each failure
 agenraci validate --format github <charter>      # ...and ::error annotations for GitHub Actions
 agenraci schema                                  # print the charter JSON Schema (for editor autocomplete)
+agenraci compile --target github     <charter>   # emit CODEOWNERS + branch-protection guidance
 agenraci compile --target humanlayer <charter>   # placeholder in v0.1
 agenraci compile --target langgraph  <charter>   # placeholder in v0.1
 ```
