@@ -198,6 +198,16 @@ runtime config. v0.1 ships **stubs only**:
 
 The CLI refuses to compile a charter that fails any linter rule.
 
+### Other CLI surfaces
+
+- `agenraci schema` prints the charter JSON Schema, generated from the same
+  pydantic models the checker uses (so it never drifts). The `init` template
+  carries a `# yaml-language-server: $schema=` line, giving editor autocomplete
+  and inline validation against that schema.
+- `agenraci validate --format github` additionally emits `::error` workflow
+  commands, so the GitHub Action surfaces failures as PR file annotations. The
+  default `human` format is unchanged.
+
 ---
 
 ## 9. Resolved design decisions (v0.1)

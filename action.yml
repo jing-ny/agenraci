@@ -44,4 +44,4 @@ runs:
           echo "::error::no charter files matched '$CHARTER'"
           exit 1
         fi
-        agenraci validate "${files[@]}"
+        agenraci validate --format github "${files[@]}"

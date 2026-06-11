@@ -1,0 +1,257 @@
+{
+  "$defs": {
+    "Action": {
+      "additionalProperties": false,
+      "description": "One TYPE of action that can occur in the project, with its RACI + gate.\n\nEnumerate action *types*, not individual tasks. Each must map to exactly one\nAccountable role (R1).",
+      "properties": {
+        "responsible": {
+          "title": "Responsible",
+          "type": "string"
+        },
+        "accountable": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Accountable",
+          "type": "array"
+        },
+        "consulted": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Consulted",
+          "type": "array"
+        },
+        "informed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Informed",
+          "type": "array"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "low_risk": {
+          "default": false,
+          "title": "Low Risk",
+          "type": "boolean"
+        },
+        "gate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Gate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "suggestion_route": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SuggestionRoute"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "responsible",
+        "accountable"
+      ],
+      "title": "Action",
+      "type": "object"
+    },
+    "BreakGlass": {
+      "additionalProperties": false,
+      "description": "The emergency path around a gate, with a named owner and condition.\n\ne.g. an engineer may hotfix-deploy during a SEV-1 without the normal merge\ngate, with mandatory after-the-fact review.",
+      "properties": {
+        "who": {
+          "title": "Who",
+          "type": "string"
+        },
+        "condition": {
+          "title": "Condition",
+          "type": "string"
+        },
+        "requires_after_review": {
+          "default": false,
+          "title": "Requires After Review",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "who",
+        "condition"
+      ],
+      "title": "BreakGlass",
+      "type": "object"
+    },
+    "CapabilitySet": {
+      "additionalProperties": false,
+      "description": "What a role may touch: capabilities granted and/or explicitly denied.\n\nA capability is just a string token (e.g. ``edit_code``, ``merge``,\n``deploy``, ``spend``, ``contact_users``, ``read_analytics``,\n``block_merge``). Denials are explicit and first-class \u2014 a role can be\n*denied* a capability it would otherwise be assumed to have.",
+      "properties": {
+        "grant": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Grant",
+          "type": "array"
+        },
+        "deny": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Deny",
+          "type": "array"
+        }
+      },
+      "title": "CapabilitySet",
+      "type": "object"
+    },
+    "Gate": {
+      "additionalProperties": false,
+      "description": "An approval gate on an action.\n\nEvery gate must declare ``on_timeout`` and ``break_glass`` (enforced by\nlinter rule R4) so a safety rule can never silently deadlock the team.",
+      "properties": {
+        "approver": {
+          "title": "Approver",
+          "type": "string"
+        },
+        "on_timeout": {
+          "title": "On Timeout",
+          "type": "string"
+        },
+        "break_glass": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BreakGlass"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "approver",
+        "on_timeout"
+      ],
+      "title": "Gate",
+      "type": "object"
+    },
+    "Member": {
+      "additionalProperties": false,
+      "description": "A human or agent appointed to a role. Appointing a member is one line.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "role"
+      ],
+      "title": "Member",
+      "type": "object"
+    },
+    "SuggestionRoute": {
+      "additionalProperties": false,
+      "description": "Where a blocked-but-confident actor's input goes so it isn't dropped.\n\ne.g. the Domain Expert who can't touch code files a ``correction_request``\nthe Engineer must clear before the Reviewer can approve the merge.",
+      "properties": {
+        "from": {
+          "title": "From",
+          "type": "string"
+        },
+        "to": {
+          "title": "To",
+          "type": "string"
+        },
+        "as": {
+          "title": "As",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "as"
+      ],
+      "title": "SuggestionRoute",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The whole operating constitution for one project.",
+  "properties": {
+    "project": {
+      "title": "Project",
+      "type": "string"
+    },
+    "roles": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Roles",
+      "type": "array"
+    },
+    "members": {
+      "items": {
+        "$ref": "#/$defs/Member"
+      },
+      "title": "Members",
+      "type": "array"
+    },
+    "capabilities": {
+      "additionalProperties": {
+        "$ref": "#/$defs/CapabilitySet"
+      },
+      "title": "Capabilities",
+      "type": "object"
+    },
+    "actions": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Action"
+      },
+      "title": "Actions",
+      "type": "object"
+    }
+  },
+  "required": [
+    "project",
+    "roles"
+  ],
+  "title": "Charter",
+  "type": "object"
+}

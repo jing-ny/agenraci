@@ -74,6 +74,29 @@ def test_validate_explain_prints_plain_language_fix(tmp_path, monkeypatch):
     assert "exactly one accountable role" not in plain.stdout
 
 
+def test_validate_github_format_emits_annotations(tmp_path, monkeypatch):
+    """`--format github` emits ::error annotations on failure; human mode does not."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "bad.yaml").write_text(
+        "project: broken\n"
+        "roles: [a, b]\n"
+        "actions:\n"
+        "  x: { responsible: a, accountable: [a, b] }\n",  # R1 fails
+        encoding="utf-8",
+    )
+
+    gh = runner.invoke(app, ["validate", "--format", "github", "bad.yaml"])
+    assert gh.exit_code == 1
+    assert "::error file=bad.yaml" in gh.stdout
+    assert "AgenRACI R1" in gh.stdout
+
+    human = runner.invoke(app, ["validate", "bad.yaml"])
+    assert "::error" not in human.stdout  # annotations are opt-in
+
+    bad_fmt = runner.invoke(app, ["validate", "--format", "xml", "bad.yaml"])
+    assert bad_fmt.exit_code == 2
+
+
 def test_validate_rejects_duplicate_keys(tmp_path, monkeypatch):
     """A duplicated key must fail loudly, not silently keep the last value.
 

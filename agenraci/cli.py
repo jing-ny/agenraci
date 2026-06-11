@@ -85,7 +85,18 @@ def init(
     _echo(f"  Edit it, then run: {_BOLD}agenraci validate {charter_path}{_RESET}")
 
 
-def _validate_one(charter_path: Path, *, explain: bool = False) -> bool:
+def _gh_error(path: Path, title: str, message: str) -> None:
+    """Emit a GitHub Actions ``::error`` workflow command (a file-level annotation).
+
+    GitHub renders these in the PR "Files changed" tab, so a failing charter
+    shows up where reviewers look instead of only in the run log. Newlines would
+    break the command, so collapse them.
+    """
+    one_line = " ".join(message.split())
+    _echo(f"::error file={path},title=AgenRACI {title}::{one_line}")
+
+
+def _validate_one(charter_path: Path, *, explain: bool = False, github: bool = False) -> bool:
     """Validate a single charter, print its per-rule report, return True if clean."""
     try:
         charter = load_charter(charter_path)
@@ -94,9 +105,13 @@ def _validate_one(charter_path: Path, *, explain: bool = False) -> bool:
         for err in exc.errors():
             loc = ".".join(str(p) for p in err["loc"]) or "<root>"
             _echo(f"  {_RED}-{_RESET} {loc}: {err['msg']}")
+            if github:
+                _gh_error(charter_path, "schema error", f"{loc}: {err['msg']}")
         return False
     except Exception as exc:  # malformed YAML, etc.
         _echo(f"{_RED}{_BOLD}✗ could not load{_RESET} {charter_path}: {exc}")
+        if github:
+            _gh_error(charter_path, "could not load", str(exc))
         return False
 
     errors = lint(charter)
@@ -117,6 +132,8 @@ def _validate_one(charter_path: Path, *, explain: bool = False) -> bool:
             _echo(f"{_RED}✗ {rule_id}{_RESET} {title}")
             for e in rule_errors:
                 _echo(f"    {_RED}-{_RESET} {e.target}: {e.message}")
+                if github:
+                    _gh_error(charter_path, rule_id, f"{e.target}: {e.message}")
             if explain and rule_id in EXPLANATIONS:
                 _echo(f"    {_DIM}↳ {EXPLANATIONS[rule_id]}{_RESET}")
         else:
@@ -139,18 +156,30 @@ def validate(
         False, "--explain", "-e",
         help="After each failing rule, print a plain-language fix in one line.",
     ),
+    output_format: str = typer.Option(
+        "human", "--format",
+        help="Output format: 'human' (default) or 'github' "
+             "(also emit ::error annotations for GitHub Actions).",
+    ),
 ) -> None:
     """Validate one or more charters against the schema and linter rules R1-R6.
 
     Accepting several paths lets a CI job or a pre-commit hook check every
     charter in a repo in one call; the command exits non-zero if any fail.
-    Add --explain to turn each rule code into a plain-language fix.
+    Add --explain to turn each rule code into a plain-language fix, or
+    --format github to surface failures as PR annotations in GitHub Actions.
     """
+    if output_format not in ("human", "github"):
+        _echo(f"{_RED}unknown --format {output_format!r}.{_RESET} "
+              f"choose one of: human, github")
+        raise typer.Exit(code=2)
+    github = output_format == "github"
+
     ok = True
     for i, charter_path in enumerate(charter_paths):
         if i:
             _echo(f"{_DIM}{'─' * 60}{_RESET}")
-        ok = _validate_one(charter_path, explain=explain) and ok
+        ok = _validate_one(charter_path, explain=explain, github=github) and ok
 
     if not ok:
         raise typer.Exit(code=1)
@@ -184,6 +213,22 @@ def compile(  # noqa: A001 - this is the user-facing verb
 
     _echo(f"{_DIM}# agenraci compile --target {target} (STUB){_RESET}")
     _echo(TARGETS[target](charter))
+
+
+@app.command()
+def schema() -> None:
+    """Print the charter JSON Schema (for editor autocomplete / external tools).
+
+    The schema is generated from the same pydantic models the checker uses, so
+    it never drifts from what `agenraci validate` accepts. Editors with the YAML
+    language server pick it up automatically from the `# yaml-language-server:
+    $schema=` line that `agenraci init` writes at the top of a new charter.
+    """
+    import json
+
+    from .schema import Charter
+
+    _echo(json.dumps(Charter.model_json_schema(), indent=2))
 
 
 def main() -> None:  # console-script entry point

@@ -45,6 +45,10 @@ New here? Start with the essay: [**Why AgenRACI**](docs/why-agenraci.md) — the
 accountability gap, why classic RACI breaks under agentic AI, and how this fits
 ISO/IEC 42001 and the EU AI Act.
 
+Already running agents (LangGraph, CrewAI, Claude subagents)? The cookbook
+[**From a running agent team to a charter**](docs/cookbook/from-agents-to-a-charter.md)
+shows what to literally write, mapping graph nodes → roles → accountable owners.
+
 ## See it catch a gap
 
 A charter where two roles both think they're accountable for shipping code — the
@@ -147,9 +151,15 @@ backdoor for an agent to act unsupervised.
 agenraci init [path]                             # write a commented starter charter (default: charter.yaml)
 agenraci validate <charter.yaml> [more.yaml...]  # parse + check, with a per-rule report
 agenraci validate --explain <charter.yaml>       # ...and a plain-language fix under each failure
+agenraci validate --format github <charter>      # ...and ::error annotations for GitHub Actions
+agenraci schema                                  # print the charter JSON Schema (for editor autocomplete)
 agenraci compile --target humanlayer <charter>   # placeholder in v0.1
 agenraci compile --target langgraph  <charter>   # placeholder in v0.1
 ```
+
+A freshly `init`'d charter carries a `# yaml-language-server: $schema=` line, so
+editors with the YAML language server (e.g. VS Code + the Red Hat YAML
+extension) give you autocomplete and inline validation as you type.
 
 ## Keep the charter honest in CI
 
@@ -170,6 +180,10 @@ jobs:
         with:
           charter: charter.yaml      # a path, or a glob like 'governance/*.yaml'
 ```
+
+A failing charter shows up as a file-level annotation in the PR's "Files
+changed" tab (the Action runs `validate --format github`), not just buried in
+the run log.
 
 **pre-commit hook** — catch it before it's even committed:
 
