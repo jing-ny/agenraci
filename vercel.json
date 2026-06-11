@@ -4,6 +4,16 @@
   "outputDirectory": ".",
   "cleanUrls": true,
   "rewrites": [
-    { "source": "/", "destination": "/docs/playground/" }
-  ]
+    {
+      "source": "/",
+      "destination": "/docs/playground/"
+    }
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "*": false,
+      "**": false,
+      "main": true
+    }
+  }
 }
