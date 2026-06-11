@@ -177,7 +177,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jing-ny/agenraci@v0.1.0
+      - uses: jing-ny/agenraci@v0.1.1
         with:
           charter: charter.yaml      # a path, or a glob like 'governance/*.yaml'
 ```
@@ -192,7 +192,7 @@ the run log.
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/jing-ny/agenraci
-    rev: v0.1.0
+    rev: v0.1.1
     hooks:
       - id: agenraci-validate        # checks staged charter.yaml / charter.yml files
 ```
