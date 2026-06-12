@@ -153,10 +153,20 @@ agenraci validate <charter.yaml> [more.yaml...]  # parse + check, with a per-rul
 agenraci validate --explain <charter.yaml>       # ...and a plain-language fix under each failure
 agenraci validate --format github <charter>      # ...and ::error annotations for GitHub Actions
 agenraci schema                                  # print the charter JSON Schema (for editor autocomplete)
+agenraci compile --target claude <charter> -o .  # emit .claude/agents/ definitions + a CLAUDE.md snippet
 agenraci compile --target github     <charter>   # emit CODEOWNERS + branch-protection guidance
 agenraci compile --target humanlayer <charter>   # placeholder in v0.1
 agenraci compile --target langgraph  <charter>   # placeholder in v0.1
 ```
+
+The `claude` target makes the charter *operative* for a [Claude Code](https://claude.com/claude-code)
+team: it generates one `.claude/agents/<member>.md` per agent member — role
+boundaries, explicit "never do X" denials, who signs off on what — plus a
+governance snippet for `CLAUDE.md`. Two people collaborating with their own
+agents compile the same charter and both sides' agents carry the same rules.
+(Still honest scope: these are config files the runtime already reads, not
+runtime interception. This repo's own `.claude/agents/` follows exactly this
+pattern.)
 
 A freshly `init`'d charter carries a `# yaml-language-server: $schema=` line, so
 editors with the YAML language server (e.g. VS Code + the Red Hat YAML

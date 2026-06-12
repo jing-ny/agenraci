@@ -185,18 +185,36 @@ def validate(
         raise typer.Exit(code=1)
 
 
+def _split_compiled_files(text: str) -> list[tuple[str, str]]:
+    """Split a multi-file compile output on ``--- FILE: <path> ---`` markers."""
+    files: list[tuple[str, list[str]]] = []
+    for line in text.splitlines():
+        if line.startswith("--- FILE: ") and line.endswith(" ---"):
+            files.append((line[len("--- FILE: "):-len(" ---")].strip(), []))
+        elif files:
+            files[-1][1].append(line)
+    return [(path, "\n".join(body).strip() + "\n") for path, body in files]
+
+
 @app.command()
 def compile(  # noqa: A001 - this is the user-facing verb
     charter_path: Path = typer.Argument(..., exists=True, readable=True,
                                         help="Path to charter.yaml"),
     target: str = typer.Option(..., "--target", "-t",
-                               help="github | humanlayer | langgraph"),
+                               help="claude | github | humanlayer | langgraph"),
+    out_dir: Path = typer.Option(
+        None, "--out-dir", "-o",
+        help="For multi-file targets (claude): write the emitted files under "
+             "this directory instead of printing them.",
+    ),
 ) -> None:
     """Compile a validated charter into config for a target tool.
 
-    `github` is real — it emits CODEOWNERS + branch-protection guidance from the
-    charter's gates and accountability. `humanlayer` and `langgraph` are stubs in
-    v0.1. Either way AgenRACI emits config a human applies; it never enforces at
+    `claude` is real — it emits .claude/agents/ definitions (+ a CLAUDE.md
+    governance snippet) so Claude Code agents carry the charter's role
+    boundaries. `github` is real — CODEOWNERS + branch-protection guidance from
+    the charter's gates. `humanlayer` and `langgraph` are stubs. Either way
+    AgenRACI emits config a human reviews and applies; it never enforces at
     runtime.
     """
     if target not in TARGETS:
@@ -219,7 +237,27 @@ def compile(  # noqa: A001 - this is the user-facing verb
 
     if target in STUB_TARGETS:
         _echo(f"{_DIM}# agenraci compile --target {target} (STUB){_RESET}")
-    _echo(TARGETS[target](charter))
+    output = TARGETS[target](charter)
+
+    if out_dir is None:
+        _echo(output)
+        return
+
+    files = _split_compiled_files(output)
+    if not files:
+        _echo(f"{_RED}✗ target {target!r} emits a single document{_RESET} — "
+              f"drop --out-dir and redirect stdout instead.")
+        raise typer.Exit(code=2)
+    for rel, content in files:
+        rel_path = Path(rel)
+        # Refuse path escapes: everything must land under --out-dir.
+        if rel_path.is_absolute() or ".." in rel_path.parts:
+            _echo(f"{_RED}✗ refusing to write outside --out-dir:{_RESET} {rel}")
+            raise typer.Exit(code=1)
+        dest = out_dir / rel_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(content, encoding="utf-8")
+        _echo(f"{_GREEN}✓{_RESET} wrote {dest}")
 
 
 @app.command()

@@ -194,6 +194,14 @@ action/role.
 config for an existing tool. The emit is config a human reviews and applies — not
 runtime enforcement.
 
+- `claude` — **real**. Emits one `.claude/agents/<member>.md` per *agent member*
+  (frontmatter + a system-prompt skeleton derived from the charter: the actions
+  the role is responsible/accountable for, capability grants and explicit
+  "never do X" denials, the gates it approves, its suggestion routes, and the
+  human escalation contacts) plus a `CLAUDE.governance.md` snippet to paste into
+  `CLAUDE.md`. Multi-file output uses `--- FILE: <path> ---` markers;
+  `compile --out-dir DIR` splits and writes them (with path-escape protection).
+  Members' `model:` ids map onto Claude Code's model tokens when unambiguous.
 - `github` — **real**. Emits a CODEOWNERS starting point (humans accountable for
   gated actions) and a branch-protection checklist derived from each gate
   (required approver, whether timeout may auto-proceed, break-glass). Because a

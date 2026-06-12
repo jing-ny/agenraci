@@ -76,3 +76,79 @@ def test_compile_github_no_gates_says_so(tmp_path, monkeypatch):
     result = runner.invoke(app, ["compile", "--target", "github", "nogate.yaml"])
     assert result.exit_code == 0
     assert "No action declares a `gate:`" in result.stdout
+
+
+# --- claude target (real: .claude/agents/ + CLAUDE.md snippet) ---------------
+
+
+def test_compile_claude_emits_one_file_per_agent_member():
+    """One agent file per `type: agent` member; humans get no file; not a stub."""
+    result = runner.invoke(app, ["compile", "--target", "claude", GOVERNANCE])
+    assert result.exit_code == 0
+    out = result.stdout
+    for agent in ("writer", "coder", "reviewer", "qa"):
+        assert f"--- FILE: .claude/agents/{agent}.md ---" in out
+    # maintainer is human — escalation contact, not an agent file.
+    assert "--- FILE: .claude/agents/maintainer.md ---" not in out
+    assert "**maintainer** (human" in out
+    assert "--- FILE: CLAUDE.governance.md ---" in out
+    assert "STUB" not in out
+
+
+def test_compile_claude_surfaces_denials_and_gates():
+    """Deny rules become explicit never-do guidance; gates keep author != approver."""
+    result = runner.invoke(app, ["compile", "--target", "claude", GOVERNANCE])
+    out = result.stdout
+    # reviewer's denials are the point of the role.
+    assert "**Never** exercise `edit_code`" in out
+    # The merge gate: reviewer approves, coder must not self-approve.
+    assert "required approver: **reviewer**" in out
+    assert "Don't approve your own work" in out
+    # Suggestion routes survive: qa can't fix, so defects route to coder.
+    assert "**defect_report**" in out
+
+
+def test_compile_claude_maps_member_models_to_frontmatter_tokens():
+    """Member model ids map onto Claude Code's model tokens when unambiguous."""
+    result = runner.invoke(app, ["compile", "--target", "claude", GOVERNANCE])
+    assert "model: opus" in result.stdout     # coder / reviewer
+    assert "model: sonnet" in result.stdout   # writer / qa
+
+
+def test_compile_claude_out_dir_writes_files(tmp_path):
+    """--out-dir splits the FILE markers and writes real files."""
+    result = runner.invoke(app, [
+        "compile", "--target", "claude", GOVERNANCE, "--out-dir", str(tmp_path),
+    ])
+    assert result.exit_code == 0
+    for agent in ("writer", "coder", "reviewer", "qa"):
+        f = tmp_path / ".claude" / "agents" / f"{agent}.md"
+        assert f.exists(), f
+        assert f.read_text(encoding="utf-8").startswith("---\n")  # frontmatter
+    assert (tmp_path / "CLAUDE.governance.md").exists()
+
+
+def test_compile_out_dir_rejects_single_document_target(tmp_path):
+    """--out-dir only makes sense for multi-file targets."""
+    result = runner.invoke(app, [
+        "compile", "--target", "github", GOVERNANCE, "--out-dir", str(tmp_path),
+    ])
+    assert result.exit_code == 2
+    assert "single document" in result.stdout
+
+
+def test_compile_claude_all_human_charter_says_so(tmp_path, monkeypatch):
+    """No agent members -> a clear note, not an error or empty output."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "humans.yaml").write_text(
+        "project: humans-only\n"
+        "roles: [lead]\n"
+        "members:\n"
+        "  - { name: pat, type: human, role: lead }\n"
+        "actions:\n"
+        "  decide: { responsible: lead, accountable: lead }\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["compile", "--target", "claude", "humans.yaml"])
+    assert result.exit_code == 0
+    assert "No agent members" in result.stdout
