@@ -17,6 +17,8 @@ splits and writes them.
 
 from __future__ import annotations
 
+import yaml
+
 from ..schema import ANY, Charter
 
 FILE_MARKER = "--- FILE: {path} ---"
@@ -116,11 +118,17 @@ def _agent_file(member, charter: Charter) -> str:
     description = (f"{role} role for {charter.project}, generated from its "
                    f"AgenRACI charter. " + " ".join(desc_bits)).strip()
 
-    fm = ["---", f"name: {member.name}", f"description: {description}"]
+    # Emit the frontmatter through the YAML dumper, never by string concat —
+    # the description contains "Responsible for: …" and an unquoted ": " would
+    # make the frontmatter unparseable (Claude Code reads it as YAML).
+    fm_data: dict = {"name": member.name, "description": description}
     token = _model_token(member.model)
     if token:
-        fm.append(f"model: {token}")
-    fm.append("---")
+        fm_data["model"] = token
+    fm_body = yaml.safe_dump(
+        fm_data, sort_keys=False, allow_unicode=True, width=1_000_000,
+    ).strip()
+    fm = ["---", fm_body, "---"]
 
     # --- body ----------------------------------------------------------------
     b: list[str] = []

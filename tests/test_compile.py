@@ -152,3 +152,28 @@ def test_compile_claude_all_human_charter_says_so(tmp_path, monkeypatch):
     result = runner.invoke(app, ["compile", "--target", "claude", "humans.yaml"])
     assert result.exit_code == 0
     assert "No agent members" in result.stdout
+
+
+def test_compile_claude_frontmatter_is_parseable_yaml(tmp_path):
+    """Every generated agent file's frontmatter must yaml.safe_load cleanly.
+
+    The description embeds "Responsible for: …" — unquoted, that ": " breaks
+    YAML and Claude Code would reject the file. Regression guard for that.
+    """
+    import yaml
+
+    runner.invoke(app, [
+        "compile", "--target", "claude", GOVERNANCE, "--out-dir", str(tmp_path),
+    ])
+    agent_files = sorted((tmp_path / ".claude" / "agents").glob("*.md"))
+    assert agent_files, "no agent files were written"
+    for f in agent_files:
+        text = f.read_text(encoding="utf-8")
+        assert text.startswith("---\n"), f
+        fm_text = text.split("---", 2)[1]
+        fm = yaml.safe_load(fm_text)
+        assert isinstance(fm, dict), f"{f}: frontmatter did not parse to a dict"
+        assert fm.get("name") == f.stem
+        assert isinstance(fm.get("description"), str) and fm["description"]
+        if "model" in fm:
+            assert fm["model"] in ("opus", "sonnet", "haiku")

@@ -2,7 +2,10 @@
 
 * ``agenraci init [path]`` — write a starter charter to edit.
 * ``agenraci validate <charter.yaml>`` — parse + lint, with a per-rule report.
-* ``agenraci compile --target {humanlayer,langgraph} <charter.yaml>`` — STUB.
+* ``agenraci schema`` — print the charter JSON Schema.
+* ``agenraci compile --target {claude,github,humanlayer,langgraph}`` — compile a
+  validated charter into config for a target tool (claude/github are real;
+  humanlayer/langgraph are stubs).
 """
 
 from __future__ import annotations
