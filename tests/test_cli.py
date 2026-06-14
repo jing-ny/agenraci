@@ -1,5 +1,6 @@
 """CLI-level tests for the agenraci command."""
 
+import json
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 
@@ -95,6 +96,147 @@ def test_validate_github_format_emits_annotations(tmp_path, monkeypatch):
 
     bad_fmt = runner.invoke(app, ["validate", "--format", "xml", "bad.yaml"])
     assert bad_fmt.exit_code == 2
+
+
+def test_validate_json_format_clean_charter(tmp_path, monkeypatch):
+    """`--format json` emits one parseable object with every rule passing."""
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["init", "good.yaml"])
+
+    result = runner.invoke(app, ["validate", "--format", "json", "good.yaml"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["charter"] == "good.yaml"
+    assert payload["ok"] is True
+    assert payload["error"] is None
+    # All six rules R1-R6 are reported, each passing with no findings.
+    assert [r["id"] for r in payload["rules"]] == ["R1", "R2", "R3", "R4", "R5", "R6"]
+    assert all(r["passed"] and r["findings"] == [] for r in payload["rules"])
+    # The human report is suppressed under json.
+    assert "PASS" not in result.stdout
+
+
+def test_validate_json_format_reports_failing_rule(tmp_path, monkeypatch):
+    """A failing rule surfaces as passed=false with structured findings."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "bad.yaml").write_text(
+        "project: broken\n"
+        "roles: [a, b]\n"
+        "actions:\n"
+        "  x: { responsible: a, accountable: [a, b] }\n",  # 2 accountable -> R1 fails
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["validate", "--format", "json", "bad.yaml"])
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    r1 = next(r for r in payload["rules"] if r["id"] == "R1")
+    assert r1["passed"] is False
+    assert r1["findings"][0]["target"] == "x"
+    assert "accountable" in r1["findings"][0]["message"]
+
+
+def test_validate_json_format_is_json_lines_for_multiple(tmp_path, monkeypatch):
+    """Several charters yield one JSON object per line (JSON Lines), no separators."""
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["init", "good.yaml"])
+    (tmp_path / "bad.yaml").write_text(
+        "project: broken\n"
+        "roles: [a, b]\n"
+        "actions:\n"
+        "  x: { responsible: a, accountable: [a, b] }\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app, ["validate", "--format", "json", "good.yaml", "bad.yaml"]
+    )
+    assert result.exit_code == 1
+    lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
+    objs = [json.loads(ln) for ln in lines]  # every line parses on its own
+    assert len(objs) == 2
+    assert objs[0]["ok"] is True and objs[1]["ok"] is False
+    assert "─" not in result.stdout  # no human separator leaks into json
+
+
+def test_validate_json_format_reports_schema_error(tmp_path, monkeypatch):
+    """A charter that doesn't load is still a parseable json object with `error` set."""
+    monkeypatch.chdir(tmp_path)
+    # `actions` must be a mapping; a scalar is a schema (type) error, not a lint miss.
+    (tmp_path / "nope.yaml").write_text(
+        "project: x\nroles: [a]\nactions: oops\n", encoding="utf-8"
+    )
+
+    result = runner.invoke(app, ["validate", "--format", "json", "nope.yaml"])
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["error"]  # non-null marker distinguishes load failure from rule failure
+    assert payload["rules"] == []
+    assert payload["findings"]
+
+
+def test_validate_sarif_clean_charter(tmp_path, monkeypatch):
+    """`--format sarif` emits a valid SARIF 2.1.0 run with no results when clean."""
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["init", "good.yaml"])
+
+    result = runner.invoke(app, ["validate", "--format", "sarif", "good.yaml"])
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["version"] == "2.1.0"
+    assert len(doc["runs"]) == 1
+    driver = doc["runs"][0]["tool"]["driver"]
+    assert driver["name"] == "AgenRACI"
+    # R1-R6 are all described as rules; no findings means no results.
+    assert {r["id"] for r in driver["rules"]} >= {"R1", "R2", "R3", "R4", "R5", "R6"}
+    assert doc["runs"][0]["results"] == []
+
+
+def test_validate_sarif_reports_finding(tmp_path, monkeypatch):
+    """A failing rule becomes a SARIF result pinned to the charter file; exit 1."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "bad.yaml").write_text(
+        "project: broken\n"
+        "roles: [a, b]\n"
+        "actions:\n"
+        "  x: { responsible: a, accountable: [a, b] }\n",  # R1 fails
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["validate", "--format", "sarif", "bad.yaml"])
+    assert result.exit_code == 1
+    res = json.loads(result.stdout)["runs"][0]["results"]
+    assert len(res) == 1
+    assert res[0]["ruleId"] == "R1"
+    assert res[0]["level"] == "error"
+    uri = res[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+    assert uri == "bad.yaml"
+
+
+def test_validate_sarif_aggregates_multiple_into_one_document(tmp_path, monkeypatch):
+    """Several charters fold into ONE SARIF run (code-scanning uploads one file)."""
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["init", "good.yaml"])
+    (tmp_path / "bad.yaml").write_text(
+        "project: broken\n"
+        "roles: [a, b]\n"
+        "actions:\n"
+        "  x: { responsible: a, accountable: [a, b] }\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app, ["validate", "--format", "sarif", "good.yaml", "bad.yaml"]
+    )
+    assert result.exit_code == 1
+    doc = json.loads(result.stdout)  # the whole output is a single JSON document
+    assert len(doc["runs"]) == 1
+    results = doc["runs"][0]["results"]
+    # Only the broken charter contributes a result, attributed to its own file.
+    assert {r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+            for r in results} == {"bad.yaml"}
 
 
 def test_validate_rejects_duplicate_keys(tmp_path, monkeypatch):
