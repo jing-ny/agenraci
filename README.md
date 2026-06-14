@@ -1,6 +1,7 @@
 # AgenRACI — who's allowed to do what, and who's accountable, on a team of humans and AI agents
 
 [![CI](https://github.com/jing-ny/agenraci/actions/workflows/ci.yml/badge.svg)](https://github.com/jing-ny/agenraci/actions/workflows/ci.yml)
+[![charter checked](https://github.com/jing-ny/agenraci/actions/workflows/charter.yml/badge.svg)](https://github.com/jing-ny/agenraci/actions/workflows/charter.yml)
 [![PyPI](https://img.shields.io/pypi/v/agenraci.svg)](https://pypi.org/project/agenraci/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -196,6 +197,16 @@ A failing charter shows up as a file-level annotation in the PR's "Files
 changed" tab (the Action runs `validate --format github`), not just buried in
 the run log.
 
+**"charter checked" badge** — once that workflow is in place, show it off in
+your README so every reader can see the charter passes:
+
+```markdown
+[![charter checked](https://github.com/<you>/<repo>/actions/workflows/charter.yml/badge.svg)](https://github.com/<you>/<repo>/actions/workflows/charter.yml)
+```
+
+(This repo wears its own: the badge at the top runs AgenRACI's Action on
+`governance/charter.yaml` — we govern ourselves with the same check.)
+
 **pre-commit hook** — catch it before it's even committed:
 
 ```yaml
@@ -208,7 +219,25 @@ repos:
 ```
 
 `agenraci validate` takes one or more paths, so a single call checks every
-charter in the repo and exits non-zero if any fails.
+charter in the repo and exits non-zero if any fails. For a step that another
+tool or dashboard should parse, add `--format json` to get one machine-readable
+object per charter (`{charter, project, ok, rules: [...]}`) instead of the human
+report — one JSON object per line when you pass several charters.
+
+**Code-scanning alerts** — `--format sarif` emits a single SARIF 2.1.0 document
+you can upload so charter failures show up in a repo's Security tab. Add these
+steps to a job that has `agenraci` installed (`pip install agenraci`):
+
+```yaml
+      - run: agenraci validate governance/charter.yaml --format sarif > charter.sarif
+        continue-on-error: true            # upload the report even when the charter fails
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: charter.sarif
+```
+
+(Findings are file-level: the checker points at a *target* — an action or role
+name — not a source line, so each alert lands on the charter file.)
 
 ## Repository layout
 

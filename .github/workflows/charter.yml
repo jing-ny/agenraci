@@ -1,0 +1,27 @@
+name: charter
+
+# AgenRACI governs itself: this workflow validates the project's own operating
+# constitution (governance/charter.yaml) on every push and PR, using AgenRACI's
+# own Action. Its status backs the "charter checked" badge in the README — the
+# same badge any adopter can copy (see "Keep the charter honest in CI").
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least privilege: only read the repo to check its charter.
+permissions:
+  contents: read
+
+jobs:
+  charter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate the project's own governance charter
+        uses: ./ # dogfood AgenRACI's own Action against our own charter
+        with:
+          charter: governance/charter.yaml

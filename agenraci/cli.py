@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from importlib.resources import files
 from pathlib import Path
@@ -35,13 +36,16 @@ def _echo(msg: str = "") -> None:
     typer.echo(msg)
 
 
+def _agenraci_version() -> str:
+    try:
+        return _pkg_version("agenraci")
+    except PackageNotFoundError:  # running from a source tree, not installed
+        return "0.0.0+unknown"
+
+
 def _version_callback(value: bool) -> None:
     if value:
-        try:
-            ver = _pkg_version("agenraci")
-        except PackageNotFoundError:  # running from a source tree, not installed
-            ver = "0.0.0+unknown"
-        _echo(f"agenraci {ver}")
+        _echo(f"agenraci {_agenraci_version()}")
         raise typer.Exit()
 
 
@@ -94,6 +98,136 @@ def _gh_error(path: Path, title: str, message: str) -> None:
     """
     one_line = " ".join(message.split())
     _echo(f"::error file={path},title=AgenRACI {title}::{one_line}")
+
+
+def _lint_result(charter_path: Path) -> dict:
+    """Compute the canonical machine-readable result for one charter (no output).
+
+    Shared by the ``json`` and ``sarif`` formats so the two never drift. Shape:
+    ``{charter, project, ok, error, rules}`` on a charter that loads, where each
+    rule carries ``passed`` and any ``findings``; on a charter that fails to load
+    it is ``{charter, project: null, ok: false, error, rules: [], findings}``.
+    """
+    try:
+        charter = load_charter(charter_path)
+    except ValidationError as exc:
+        return {
+            "charter": str(charter_path),
+            "project": None,
+            "ok": False,
+            "error": "schema error",
+            "rules": [],
+            "findings": [
+                {"loc": ".".join(str(p) for p in err["loc"]) or "<root>",
+                 "message": err["msg"]}
+                for err in exc.errors()
+            ],
+        }
+    except Exception as exc:  # malformed YAML, etc.
+        return {
+            "charter": str(charter_path),
+            "project": None,
+            "ok": False,
+            "error": "could not load",
+            "rules": [],
+            "findings": [{"loc": None, "message": str(exc)}],
+        }
+
+    errors = lint(charter)
+    by_rule: dict[str, list] = {}
+    for e in errors:
+        by_rule.setdefault(e.rule, []).append(e)
+    return {
+        "charter": str(charter_path),
+        "project": charter.project,
+        "ok": not errors,
+        "error": None,
+        "rules": [
+            {
+                "id": rule_id,
+                "title": title,
+                # Reserved for future stub rules; always false while R1-R6 are
+                # all active (no RULES title carries a " (stub)" marker today).
+                "stub": " (stub)" in title,
+                "passed": not by_rule.get(rule_id),
+                "findings": [
+                    {"target": e.target, "message": e.message}
+                    for e in by_rule.get(rule_id, [])
+                ],
+            }
+            for rule_id, title, _fn in RULES
+        ],
+    }
+
+
+def _sarif_result(rule_id: str, text: str, uri: str) -> dict:
+    """One SARIF result object pinned to a charter file (file-level, no line)."""
+    return {
+        "ruleId": rule_id,
+        "level": "error",
+        "message": {"text": text},
+        "locations": [
+            {"physicalLocation": {"artifactLocation": {"uri": uri}}}
+        ],
+    }
+
+
+def _sarif_document(results: list[dict]) -> dict:
+    """Build a single SARIF 2.1.0 run from per-charter results.
+
+    Findings are file-level: AgenRACI's checker references a *target* (an action
+    or role name), not a source line, so each result points at the charter file
+    rather than a line within it. GitHub code-scanning ingests this directly.
+    """
+    rule_descriptors = [
+        {
+            "id": rule_id,
+            "name": title,
+            "shortDescription": {"text": title},
+            **({"fullDescription": {"text": EXPLANATIONS[rule_id]}}
+               if rule_id in EXPLANATIONS else {}),
+        }
+        for rule_id, title, _fn in RULES
+    ] + [
+        {"id": "schema-error", "name": "charter schema error",
+         "shortDescription": {"text": "The charter does not match the AgenRACI schema."}},
+        {"id": "load-error", "name": "charter load error",
+         "shortDescription": {"text": "The charter file could not be parsed."}},
+    ]
+
+    sarif_results: list[dict] = []
+    for r in results:
+        uri = r["charter"]
+        if r["error"] == "schema error":
+            for f in r["findings"]:
+                sarif_results.append(
+                    _sarif_result("schema-error", f"{f['loc']}: {f['message']}", uri))
+        elif r["error"] == "could not load":
+            for f in r["findings"]:
+                sarif_results.append(_sarif_result("load-error", f["message"], uri))
+        else:
+            for rule in r["rules"]:
+                for f in rule["findings"]:
+                    sarif_results.append(
+                        _sarif_result(rule["id"], f"{f['target']}: {f['message']}", uri))
+
+    return {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "AgenRACI",
+                        "informationUri": "https://github.com/jing-ny/agenraci",
+                        "version": _agenraci_version(),
+                        "rules": rule_descriptors,
+                    }
+                },
+                "results": sarif_results,
+            }
+        ],
+    }
 
 
 def _validate_one(charter_path: Path, *, explain: bool = False, github: bool = False) -> bool:
@@ -158,25 +292,45 @@ def validate(
     ),
     output_format: str = typer.Option(
         "human", "--format",
-        help="Output format: 'human' (default) or 'github' "
-             "(also emit ::error annotations for GitHub Actions).",
+        help="Output format: 'human' (default), 'github' (also emit ::error "
+             "annotations for GitHub Actions), 'json' (one machine-readable "
+             "object per charter), or 'sarif' (a single SARIF 2.1.0 document "
+             "for GitHub code-scanning).",
     ),
 ) -> None:
     """Validate one or more charters against the schema and linter rules R1-R6.
 
     Accepting several paths lets a CI job or a pre-commit hook check every
     charter in a repo in one call; the command exits non-zero if any fail.
-    Add --explain to turn each rule code into a plain-language fix, or
-    --format github to surface failures as PR annotations in GitHub Actions.
+    Add --explain to turn each rule code into a plain-language fix,
+    --format github to surface failures as PR annotations in GitHub Actions,
+    --format json for machine-readable per-rule results, or --format sarif to
+    upload findings to GitHub code-scanning.
     """
-    if output_format not in ("human", "github"):
+    if output_format not in ("human", "github", "json", "sarif"):
         _echo(f"{_RED}unknown --format {output_format!r}.{_RESET} "
-              f"choose one of: human, github")
+              f"choose one of: human, github, json, sarif")
         raise typer.Exit(code=2)
+
+    # SARIF aggregates every charter into ONE document (code-scanning uploads a
+    # single file), so it is handled apart from the per-charter loop below.
+    if output_format == "sarif":
+        results = [_lint_result(p) for p in charter_paths]
+        _echo(json.dumps(_sarif_document(results), indent=2))
+        if not all(r["ok"] for r in results):
+            raise typer.Exit(code=1)
+        return
+
     github = output_format == "github"
+    json_out = output_format == "json"
 
     ok = True
     for i, charter_path in enumerate(charter_paths):
+        if json_out:
+            result = _lint_result(charter_path)
+            _echo(json.dumps(result))  # one object per line -> JSON Lines
+            ok = result["ok"] and ok
+            continue
         if i:
             _echo(f"{_DIM}{'─' * 60}{_RESET}")
         ok = _validate_one(charter_path, explain=explain, github=github) and ok

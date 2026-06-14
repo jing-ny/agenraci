@@ -222,6 +222,21 @@ stub targets `(STUB)` in their output.
 - `agenraci validate --format github` additionally emits `::error` workflow
   commands, so the GitHub Action surfaces failures as PR file annotations. The
   default `human` format is unchanged.
+- `agenraci validate --format json` prints one machine-readable object per
+  charter instead of the human report — `{charter, project, ok, error, rules}`,
+  where each rule carries `passed` and any `findings` — so a CI step or dashboard
+  can consume per-rule results without scraping coloured text. When a charter
+  fails to even load (a schema or YAML error), `error` is non-null, `rules` is
+  empty, and the load-level problems appear under a top-level `findings` array
+  instead; consumers branch on `error`. With several charters it emits one JSON
+  object per line (JSON Lines). Exit codes are unchanged: non-zero if any
+  charter fails.
+- `agenraci validate --format sarif` prints a single SARIF 2.1.0 document
+  aggregating findings from every charter passed (code-scanning uploads one
+  file), so failures can surface as GitHub code-scanning alerts. Findings are
+  file-level — the checker references a *target* (an action or role name), not a
+  source line — so each result points at the charter file. Exit codes are
+  unchanged.
 
 ---
 
