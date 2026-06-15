@@ -239,6 +239,18 @@ stub targets `(STUB)` in their output.
   file-level — the checker references a *target* (an action or role name), not a
   source line — so each result points at the charter file. Exit codes are
   unchanged.
+- `agenraci verify --target github` checks that a branch's protection actually
+  enforces what the charter declares (read-only — AgenRACI never changes the
+  repo). It compares the accountable *humans* of gated actions against the
+  branch's CODEOWNERS owners (subset: the charter is a *floor*, so a stricter
+  repo passes) plus branch-protection facts (a review is required, code-owner
+  review is required, and auto-merge is off when a gated action's `on_timeout`
+  is `block`). A gated action whose accountable role has no human member is
+  reported as `unenforceable` (GitHub code owners must be human) rather than
+  silently passing. Exit codes: `0` clean, `1` drift, `2` could-not-check (bad
+  input). In this v0.2 increment the branch settings come from an offline export
+  (`--settings <json>`); reading them live via `gh api` (and parsing GitHub's
+  classic-protection and ruleset shapes) is the next increment.
 
 ---
 
