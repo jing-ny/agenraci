@@ -263,12 +263,16 @@ agenraci/
 - **v0.1 — write it and check it.** The charter format, the checker (R1–R6) with
   `validate --explain` plain-language fixes, worked examples (the Autopilot
   flagship + others), a template, a GitHub Action, and a pre-commit hook. ← you are here
-- **v0.2 — first live connector.** A working HumanLayer connector that turns a
-  charter into real approval gates, plus a richer authority graph beyond gate
-  `escalate_to` edges (standing veto relations).
-- **v0.3 — LangGraph connector** + a small web view that renders the chart so
+- **v0.2 — GitHub enforcement loop.** `agenraci verify --target github` checks a
+  live repo's branch protection and CODEOWNERS against the charter and fails CI on
+  drift; the `github` target also emits directly-applyable config. Still no runtime
+  interception — verify, don't intercept.
+- **v0.3 — first runtime connector.** A working HumanLayer connector that turns
+  charter gates into real approval pauses, plus a richer authority graph beyond
+  gate `escalate_to` edges (standing veto relations).
+- **v0.4 — LangGraph connector** + a small web view that renders the chart so
   non-engineers can read it.
-- **v0.4 — author ergonomics.** Inline checker findings in an editor, and a
+- **v0.5 — author ergonomics.** Inline checker findings in an editor, and a
   reference mode that explains any rule on demand.
 
 ## FAQ

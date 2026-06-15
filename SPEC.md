@@ -207,8 +207,8 @@ runtime enforcement.
   (required approver, whether timeout may auto-proceed, break-glass). Because a
   charter governs action *types*, not file paths, the CODEOWNERS lines are a
   scaffold to scope; a gate whose approver role has no human member is flagged.
-- `humanlayer` — **stub**: approval-gate routing (real emit: v0.2).
-- `langgraph` — **stub**: interrupt/checkpoint nodes (real emit: v0.3).
+- `humanlayer` — **stub**: approval-gate routing (real emit: v0.3).
+- `langgraph` — **stub**: interrupt/checkpoint nodes (real emit: v0.4).
 
 The CLI refuses to compile a charter that fails any linter rule, and labels the
 stub targets `(STUB)` in their output.
@@ -254,7 +254,7 @@ stub targets `(STUB)` in their output.
 4. **Roles are first-class, standalone** — inline for v0.1, but modelled for a
    future shared/imported role library.
 
-### Still open (revisit at v0.2)
+### Still open (revisit at v0.3)
 
 - Whether `low_risk` should attach to **capabilities** rather than whole actions.
 - A richer authority graph beyond gate `escalate_to` edges (e.g. standing veto
