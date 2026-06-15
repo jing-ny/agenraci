@@ -10,6 +10,8 @@ scaffold you scope to your repo.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from ..schema import Charter
 
 
@@ -85,3 +87,152 @@ def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
                        f"({after}).")
 
     return "\n".join(out) + "\n"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# verify: does a live repo actually enforce what the charter declares?
+#
+# AgenRACI still does not intercept anything. `verify` is read-only: it compares
+# the charter against a repo's protection settings and reports drift. The live
+# (`gh api`) and offline (committed export) paths both normalise GitHub's two
+# protection models — classic branch protection and rulesets — into one
+# ``GitHubProtection`` before comparison, so the comparison core never sees the
+# raw API shapes.
+#
+#   charter ─┐
+#            ├─▶ verify_github() ─▶ VerifyReport ─▶ json / human
+#   GitHubProtection ─┘             (drift? + unenforceable + note)
+#       ▲
+#       └── parse_protection(export dict)  |  (live: gh api → same shape, later)
+#
+# Comparison model (deliberately NOT path globs — the human owns scoping):
+#   • owner-set: accountable HUMANS across gated actions ⊆ live CODEOWNERS owners
+#   • branch-protection facts: ≥1 required review, code-owner review required
+#   • strictest-wins: any gated on_timeout=block ⇒ auto-merge must be off
+#   • directionality: the charter is a FLOOR — a stricter repo PASSES (subset/≥)
+#   • agent-only-accountable actions are UNENFORCEABLE (code owners must be human),
+#     reported explicitly so a green result never means "nothing was verified".
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class GitHubProtection:
+    """Normalised protection settings for one branch.
+
+    Both GitHub protection models (classic branch protection and rulesets) and
+    an offline export collapse to this shape before comparison.
+    """
+
+    branch: str
+    required_reviews: int = 0
+    require_code_owner_review: bool = False
+    code_owners: list[str] = field(default_factory=list)  # @-stripped handles
+    allow_auto_merge: bool = False
+
+
+@dataclass
+class VerifyFinding:
+    target: str  # an action name, or the branch
+    kind: str  # "drift" | "unenforceable"
+    message: str
+
+
+@dataclass
+class VerifyReport:
+    project: str
+    branch: str
+    ok: bool
+    findings: list[VerifyFinding]  # drift only — these flip ok to False
+    unenforceable: list[VerifyFinding]
+    note: str | None = None
+
+
+def parse_protection(data: dict, *, branch: str = "main") -> GitHubProtection:
+    """Build a ``GitHubProtection`` from a normalised export dict.
+
+    The offline (`--settings`) input uses this documented shape::
+
+        {"branch": "main", "required_reviews": 1,
+         "require_code_owner_review": true,
+         "code_owners": ["alice", "bob"], "allow_auto_merge": false}
+
+    Parsing GitHub's raw classic-protection and ruleset API shapes into this
+    normalised form (for live mode and real exports) lands in the next increment.
+    """
+    owners = [str(o).lstrip("@") for o in data.get("code_owners", [])]
+    return GitHubProtection(
+        branch=str(data.get("branch", branch)),
+        required_reviews=int(data.get("required_reviews", 0)),
+        require_code_owner_review=bool(data.get("require_code_owner_review", False)),
+        code_owners=owners,
+        allow_auto_merge=bool(data.get("allow_auto_merge", False)),
+    )
+
+
+def verify_github(
+    charter: Charter, protection: GitHubProtection, *, branch: str = "main"
+) -> VerifyReport:
+    """Compare a charter against a branch's live protection. Read-only."""
+    gated = {n: a for n, a in charter.actions.items() if a.gate is not None}
+    if not gated:
+        return VerifyReport(
+            project=charter.project, branch=branch, ok=True, findings=[],
+            unenforceable=[],
+            note="No action declares a gate, so nothing requires enforcement.",
+        )
+
+    drift: list[VerifyFinding] = []
+    unenforceable: list[VerifyFinding] = []
+
+    # Expected owners = accountable humans across gated actions. A gated action
+    # whose accountable role(s) have no human member is unenforceable (code
+    # owners must be human), surfaced explicitly — never silently skipped.
+    expected: set[str] = set()
+    for name, action in gated.items():
+        humans = {h for r in action.accountable for h in _humans_in_role(charter, r)}
+        if humans:
+            expected.update(humans)
+        else:
+            unenforceable.append(VerifyFinding(
+                name, "unenforceable",
+                f"accountable role(s) {', '.join(action.accountable)} have no human "
+                "members; GitHub code owners must be human, so this action can't be "
+                "enforced via CODEOWNERS.",
+            ))
+
+    actual = set(protection.code_owners)
+    missing = sorted(expected - actual)  # subset check: a repo may have MORE owners
+    if missing:
+        drift.append(VerifyFinding(
+            branch, "drift",
+            "CODEOWNERS is missing accountable owner(s): "
+            + ", ".join(f"@{m}" for m in missing) + ".",
+        ))
+
+    if protection.required_reviews < 1:
+        drift.append(VerifyFinding(
+            branch, "drift",
+            "branch protection requires no approving review; the charter's gated "
+            "actions need at least one.",
+        ))
+
+    if expected and not protection.require_code_owner_review:
+        drift.append(VerifyFinding(
+            branch, "drift",
+            "branch protection does not require review from code owners, so the "
+            "accountable owners are not actually enforced.",
+        ))
+
+    if protection.allow_auto_merge and any(
+        a.gate.on_timeout == "block" for a in gated.values()
+    ):
+        drift.append(VerifyFinding(
+            branch, "drift",
+            "auto-merge is enabled but a gated action declares on_timeout=block "
+            "(it must never proceed unreviewed).",
+        ))
+
+    return VerifyReport(
+        project=charter.project, branch=branch, ok=not drift,
+        findings=drift, unenforceable=unenforceable, note=None,
+    )

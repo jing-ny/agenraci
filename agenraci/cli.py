@@ -6,6 +6,9 @@
 * ``agenraci compile --target {claude,github,humanlayer,langgraph}`` — compile a
   validated charter into config for a target tool (claude/github are real;
   humanlayer/langgraph are stubs).
+* ``agenraci verify --target github`` — check that a branch's protection enforces
+  what the charter declares (read-only; offline ``--settings`` export for now,
+  live ``gh api`` reads land in a later v0.2 increment).
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ import typer
 from pydantic import ValidationError
 
 from .adapters import STUB_TARGETS, TARGETS
+from .adapters.github import parse_protection, verify_github
 from .linter import EXPLANATIONS, RULES, lint
 from .loader import load_charter
 
@@ -423,6 +427,106 @@ def compile(  # noqa: A001 - this is the user-facing verb
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(content, encoding="utf-8")
         _echo(f"{_GREEN}✓{_RESET} wrote {dest}")
+
+
+@app.command()
+def verify(
+    charter_path: Path = typer.Argument(..., exists=True, readable=True,
+                                        help="Path to charter.yaml"),
+    target: str = typer.Option("github", "--target", "-t",
+                               help="Enforcement target to verify against (github)."),
+    settings: Path = typer.Option(
+        None, "--settings", "-s", exists=True, readable=True,
+        help="Path to a branch-protection export (JSON) to verify against "
+             "offline. Live `gh api` reads land in a later increment.",
+    ),
+    branch: str = typer.Option("main", "--branch",
+                               help="The protected branch the charter governs."),
+    output_format: str = typer.Option(
+        "human", "--format",
+        help="Output format: 'human' (default) or 'json'.",
+    ),
+) -> None:
+    """Check that a live repo actually enforces what the charter declares.
+
+    Read-only: AgenRACI compares the charter against a branch's protection
+    settings and reports drift. It never changes the repo. The charter is a
+    *floor* — a repo whose settings are stricter passes. Exit codes: 0 clean,
+    1 drift, 2 could-not-check (bad input or unreadable charter).
+    """
+    if target != "github":
+        _echo(f"{_RED}unknown --target {target!r}.{_RESET} "
+              f"verify currently supports: github")
+        raise typer.Exit(code=2)
+    if output_format not in ("human", "json"):
+        _echo(f"{_RED}unknown --format {output_format!r}.{_RESET} "
+              f"choose one of: human, json")
+        raise typer.Exit(code=2)
+    if settings is None:
+        _echo(f"{_RED}✗ --settings is required{_RESET} — pass a branch-protection "
+              f"export to verify against (live `gh api` reads land later).")
+        raise typer.Exit(code=2)
+
+    try:
+        charter = load_charter(charter_path)
+    except Exception as exc:  # noqa: BLE001 - schema error, malformed YAML, etc.
+        _echo(f"{_RED}✗ could not load {charter_path}:{_RESET} {exc}")
+        raise typer.Exit(code=2)  # could-not-check, distinct from drift
+
+    try:
+        data = json.loads(settings.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 - malformed JSON, etc.
+        _echo(f"{_RED}✗ could not read settings {settings}:{_RESET} {exc}")
+        raise typer.Exit(code=2)
+
+    # Surface a silent mismatch: the export may declare a different branch than
+    # the one we're verifying. Warn, don't fail — the user picked --branch.
+    exported = data.get("branch")
+    if exported is not None and str(exported) != branch:
+        _echo(f"{_DIM}note: settings export is for branch {exported!r}, "
+              f"but verifying against {branch!r}.{_RESET}")
+
+    protection = parse_protection(data, branch=branch)
+    report = verify_github(charter, protection, branch=branch)
+
+    if output_format == "json":
+        _echo(json.dumps({
+            "charter": str(charter_path),
+            "project": report.project,
+            "target": "github",
+            "branch": report.branch,
+            "ok": report.ok,
+            "note": report.note,
+            "findings": [
+                {"target": f.target, "kind": f.kind, "message": f.message}
+                for f in report.findings
+            ],
+            "unenforceable": [
+                {"target": f.target, "kind": f.kind, "message": f.message}
+                for f in report.unenforceable
+            ],
+        }))
+        if not report.ok:
+            raise typer.Exit(code=1)
+        return
+
+    # human
+    _echo(f"{_BOLD}AgenRACI verify (github):{_RESET} {report.project}  "
+          f"{_DIM}(branch {report.branch}, settings {settings}){_RESET}")
+    if report.note:
+        _echo(f"{_DIM}{report.note}{_RESET}")
+    for f in report.findings:
+        _echo(f"  {_RED}✗ drift{_RESET} {f.target}: {f.message}")
+    for f in report.unenforceable:
+        _echo(f"  {_DIM}- unenforceable{_RESET} {f.target}: {f.message}")
+    _echo()
+    if report.findings:
+        _echo(f"{_RED}{_BOLD}DRIFT{_RESET} — {len(report.findings)} mismatch(es) "
+              f"between the charter and the live branch protection.")
+        raise typer.Exit(code=1)
+    _echo(f"{_GREEN}{_BOLD}OK{_RESET} — the branch enforces what the charter declares"
+          + (f" ({len(report.unenforceable)} action(s) unenforceable, see above)"
+             if report.unenforceable else "") + ".")
 
 
 @app.command()
