@@ -3,8 +3,8 @@
 The ``github`` target (CODEOWNERS + branch-protection guidance) and the
 ``claude`` target (``.claude/agents/`` definitions + a CLAUDE.md governance
 snippet) are **real**. The ``humanlayer`` and ``langgraph`` targets are still
-**stubs**; their real emit logic lands in later versions (HumanLayer in v0.2,
-LangGraph in v0.3). AgenRACI sits *above* these tools and emits config *for*
+**stubs**; their real emit logic lands in later versions (HumanLayer in v0.3,
+LangGraph in v0.4). AgenRACI sits *above* these tools and emits config *for*
 them; it never runs agents or does orchestration itself — even the real
 targets generate static config a human reviews and applies, not runtime
 enforcement.
