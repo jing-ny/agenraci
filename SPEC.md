@@ -229,8 +229,10 @@ stub targets `(STUB)` in their output.
   fails to even load (a schema or YAML error), `error` is non-null, `rules` is
   empty, and the load-level problems appear under a top-level `findings` array
   instead; consumers branch on `error`. With several charters it emits one JSON
-  object per line (JSON Lines). Exit codes are unchanged: non-zero if any
-  charter fails.
+  object per line (JSON Lines). When `--explain` is also passed, each rule
+  finding additionally carries an `explanation` string with the same
+  plain-language fix used by the human report. Exit codes are unchanged:
+  non-zero if any charter fails.
 - `agenraci validate --format sarif` prints a single SARIF 2.1.0 document
   aggregating findings from every charter passed (code-scanning uploads one
   file), so failures can surface as GitHub code-scanning alerts. Findings are

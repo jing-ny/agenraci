@@ -222,7 +222,9 @@ repos:
 charter in the repo and exits non-zero if any fails. For a step that another
 tool or dashboard should parse, add `--format json` to get one machine-readable
 object per charter (`{charter, project, ok, rules: [...]}`) instead of the human
-report — one JSON object per line when you pass several charters.
+report — one JSON object per line when you pass several charters. Add `--explain`
+too if JSON consumers should receive each failing rule's plain-language fix as an
+`explanation` field on the finding objects.
 
 **Code-scanning alerts** — `--format sarif` emits a single SARIF 2.1.0 document
 you can upload so charter failures show up in a repo's Security tab. Add these

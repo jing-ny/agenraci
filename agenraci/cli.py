@@ -103,7 +103,7 @@ def _gh_error(path: Path, title: str, message: str) -> None:
     _echo(f"::error file={path},title=AgenRACI {title}::{one_line}")
 
 
-def _lint_result(charter_path: Path) -> dict:
+def _lint_result(charter_path: Path, *, explain: bool = False) -> dict:
     """Compute the canonical machine-readable result for one charter (no output).
 
     Shared by the ``json`` and ``sarif`` formats so the two never drift. Shape:
@@ -154,7 +154,15 @@ def _lint_result(charter_path: Path) -> dict:
                 "stub": " (stub)" in title,
                 "passed": not by_rule.get(rule_id),
                 "findings": [
-                    {"target": e.target, "message": e.message}
+                    {
+                        "target": e.target,
+                        "message": e.message,
+                        **(
+                            {"explanation": EXPLANATIONS[rule_id]}
+                            if explain and rule_id in EXPLANATIONS
+                            else {}
+                        ),
+                    }
                     for e in by_rule.get(rule_id, [])
                 ],
             }
@@ -330,7 +338,7 @@ def validate(
     ok = True
     for i, charter_path in enumerate(charter_paths):
         if json_out:
-            result = _lint_result(charter_path)
+            result = _lint_result(charter_path, explain=explain)
             _echo(json.dumps(result))  # one object per line -> JSON Lines
             ok = result["ok"] and ok
             continue

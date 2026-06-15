@@ -137,6 +137,26 @@ def test_validate_json_format_reports_failing_rule(tmp_path, monkeypatch):
     assert "accountable" in r1["findings"][0]["message"]
 
 
+def test_validate_json_format_explain_adds_explanation_to_findings(tmp_path, monkeypatch):
+    """`--explain --format json` carries the same plain-language fix per finding."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "bad.yaml").write_text(
+        "project: broken\n"
+        "roles: [a, b]\n"
+        "actions:\n"
+        "  x: { responsible: a, accountable: [a, b] }\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["validate", "--explain", "--format", "json", "bad.yaml"])
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    r1 = next(r for r in payload["rules"] if r["id"] == "R1")
+    finding = r1["findings"][0]
+    assert "explanation" in finding
+    assert "exactly one accountable role" in finding["explanation"]
+
+
 def test_validate_json_format_is_json_lines_for_multiple(tmp_path, monkeypatch):
     """Several charters yield one JSON object per line (JSON Lines), no separators."""
     monkeypatch.chdir(tmp_path)
