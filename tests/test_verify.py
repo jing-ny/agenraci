@@ -1,12 +1,17 @@
 """Tests for `agenraci verify --target github` (offline comparison core)."""
 
+import base64
 import json
 
 from typer.testing import CliRunner
 
 from agenraci.adapters.github import (
+    CouldNotCheck,
     GitHubProtection,
+    fetch_live_protection,
+    parse_codeowners,
     parse_protection,
+    protection_from_github,
     verify_github,
 )
 from agenraci.cli import app
@@ -236,11 +241,20 @@ def test_cli_verify_bad_settings_is_could_not_check_exit_two(tmp_path):
     assert result.exit_code == 2  # could-not-check, distinct from drift
 
 
-def test_cli_verify_missing_settings_exit_two(tmp_path):
+def test_cli_verify_neither_mode_exit_two(tmp_path):
     charter = _charter(tmp_path, _HUMAN_GATED)
     result = runner.invoke(app, ["verify", str(charter)])
     assert result.exit_code == 2
-    assert "--settings is required" in result.stdout
+    assert "exactly one" in result.stdout
+
+
+def test_cli_verify_both_modes_exit_two(tmp_path):
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    settings = _settings(tmp_path, code_owners=["alice"], required_reviews=1)
+    result = runner.invoke(app, ["verify", str(charter), "--settings", str(settings),
+                                 "--repo", "o/r"])
+    assert result.exit_code == 2
+    assert "exactly one" in result.stdout
 
 
 def test_cli_verify_human_format_clean_and_drift(tmp_path):
@@ -278,3 +292,178 @@ def test_cli_verify_unknown_target_exit_two(tmp_path):
                                  "--target", "gitlab"])
     assert result.exit_code == 2
     assert "unknown --target" in result.stdout
+
+
+# ---- increment 2: real GitHub-shape parsers --------------------------------
+
+def test_parse_codeowners_unions_owners_ignoring_paths_and_comments():
+    text = (
+        "# comment line\n"
+        "*            @alice @bob\n"
+        "/docs/       @carol   # docs owner\n"
+        "/api/        @org/platform\n"
+    )
+    assert parse_codeowners(text) == ["alice", "bob", "carol", "org/platform"]
+
+
+def test_protection_from_github_classic_shape():
+    classic = {"required_pull_request_reviews": {
+        "required_approving_review_count": 2, "require_code_owner_reviews": True}}
+    prot = protection_from_github(branch="main", protection=classic,
+                                  repo={"allow_auto_merge": True},
+                                  codeowners="* @alice")
+    assert prot.required_reviews == 2
+    assert prot.require_code_owner_review is True
+    assert prot.code_owners == ["alice"]
+    assert prot.allow_auto_merge is True
+
+
+def test_protection_from_github_unions_classic_and_rulesets():
+    """Union: required reviews = max, code-owner review = either."""
+    classic = {"required_pull_request_reviews": {
+        "required_approving_review_count": 1, "require_code_owner_reviews": False}}
+    rules = [{"type": "pull_request", "parameters": {
+        "required_approving_review_count": 3, "require_code_owner_review": True}}]
+    prot = protection_from_github(branch="main", protection=classic, rules=rules)
+    assert prot.required_reviews == 3        # max(1, 3)
+    assert prot.require_code_owner_review is True  # False OR True
+
+
+def test_protection_from_github_ruleset_only():
+    """A repo protected only via a ruleset (no classic protection) is seen."""
+    rules = [{"type": "pull_request", "parameters": {
+        "required_approving_review_count": 1, "require_code_owner_review": True}}]
+    prot = protection_from_github(branch="main", protection=None, rules=rules,
+                                  codeowners="* @alice")
+    assert prot.required_reviews == 1
+    assert prot.require_code_owner_review is True
+
+
+# ---- increment 2: live reader (injected runner, no network) ----------------
+
+def _runner(*, repo=(0, '{"allow_auto_merge": false}', ""),
+            protection=(1, "", "404 Not Found"),
+            rules=(0, "[]", ""),
+            codeowners=None):
+    """Build a fake `gh api` runner keyed on path fragments."""
+    def run(argv):
+        path = argv[-1]
+        if "/protection" in path:
+            return protection
+        if "/rules/branches/" in path:
+            return rules
+        if "/contents/" in path:
+            if codeowners is None:
+                return (1, "", "404 Not Found")
+            enc = base64.b64encode(codeowners.encode()).decode()
+            return (0, json.dumps({"encoding": "base64", "content": enc}), "")
+        return repo  # repos/{repo}
+    return run
+
+
+def test_fetch_live_success():
+    classic = json.dumps({"required_pull_request_reviews": {
+        "required_approving_review_count": 1, "require_code_owner_reviews": True}})
+    prot = fetch_live_protection(
+        "o/r", "main",
+        runner=_runner(protection=(0, classic, ""), codeowners="* @alice"))
+    assert prot.required_reviews == 1
+    assert prot.require_code_owner_review is True
+    assert prot.code_owners == ["alice"]
+
+
+def test_fetch_live_classic_404_is_not_an_error():
+    """A 404 on the protection endpoint means 'no classic protection', not error."""
+    prot = fetch_live_protection(
+        "o/r", "main", runner=_runner(protection=(1, "", "404 Not Found")))
+    assert prot.required_reviews == 0  # nothing enforced, but no exception
+
+
+def test_fetch_live_repo_404_is_could_not_check():
+    with __import__("pytest").raises(CouldNotCheck):
+        fetch_live_protection(
+            "o/missing", "main", runner=_runner(repo=(1, "", "404 Not Found")))
+
+
+def test_fetch_live_auth_error_is_could_not_check():
+    with __import__("pytest").raises(CouldNotCheck):
+        fetch_live_protection(
+            "o/r", "main", runner=_runner(repo=(1, "", "HTTP 401: Bad credentials")))
+
+
+def test_fetch_live_propagates_runner_could_not_check():
+    def boom(argv):
+        raise CouldNotCheck("the `gh` CLI is not installed or not on PATH.")
+    with __import__("pytest").raises(CouldNotCheck):
+        fetch_live_protection("o/r", "main", runner=boom)
+
+
+# ---- increment 2: CLI live mode --------------------------------------------
+
+def test_cli_verify_live_success(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "agenraci.cli.fetch_live_protection",
+        lambda repo, branch: GitHubProtection(
+            branch=branch, required_reviews=1, require_code_owner_review=True,
+            code_owners=["alice"]),
+    )
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    result = runner.invoke(app, ["verify", str(charter), "--repo", "o/r",
+                                 "--format", "json"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["ok"] is True
+
+
+def test_cli_verify_live_could_not_check_exit_two(tmp_path, monkeypatch):
+    def boom(repo, branch):
+        raise CouldNotCheck("the `gh` CLI is not installed or not on PATH.")
+    monkeypatch.setattr("agenraci.cli.fetch_live_protection", boom)
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    result = runner.invoke(app, ["verify", str(charter), "--repo", "o/r"])
+    assert result.exit_code == 2
+    assert "could not check" in result.stdout.lower()
+
+
+# ---- increment 2: error-taxonomy + default-runner edge cases ---------------
+
+def test_fetch_live_protection_403_is_could_not_check():
+    """A 403 on the protection endpoint is auth, NOT 'no classic protection'."""
+    with __import__("pytest").raises(CouldNotCheck):
+        fetch_live_protection(
+            "o/r", "main",
+            runner=_runner(protection=(1, "", "gh: Forbidden (HTTP 403)")))
+
+
+def test_fetch_live_repo_500_is_could_not_check():
+    """A non-404/non-auth failure on the repo endpoint still can't-check."""
+    with __import__("pytest").raises(CouldNotCheck):
+        fetch_live_protection(
+            "o/r", "main", runner=_runner(repo=(1, "", "gh: Server Error (HTTP 500)")))
+
+
+def test_fetch_live_unions_classic_and_ruleset_through_reader():
+    """The classic∪ruleset union flows end-to-end through fetch_live_protection."""
+    classic = json.dumps({"required_pull_request_reviews": {
+        "required_approving_review_count": 1, "require_code_owner_reviews": False}})
+    rules = json.dumps([{"type": "pull_request", "parameters": {
+        "required_approving_review_count": 3, "require_code_owner_review": True}}])
+    prot = fetch_live_protection(
+        "o/r", "main",
+        runner=_runner(protection=(0, classic, ""), rules=(0, rules, ""),
+                       codeowners="* @alice"))
+    assert prot.required_reviews == 3            # max(1, 3) from the ruleset
+    assert prot.require_code_owner_review is True  # False(classic) OR True(ruleset)
+
+
+def test_default_runner_missing_binary_is_could_not_check():
+    """_default_runner maps a missing executable to CouldNotCheck."""
+    from agenraci.adapters.github import _default_runner
+    with __import__("pytest").raises(CouldNotCheck):
+        _default_runner(["this-binary-does-not-exist-xyz", "api", "x"])
+
+
+def test_cli_verify_repo_without_slash_exit_two(tmp_path):
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    result = runner.invoke(app, ["verify", str(charter), "--repo", "noslug"])
+    assert result.exit_code == 2
+    assert "OWNER/REPO" in result.stdout
