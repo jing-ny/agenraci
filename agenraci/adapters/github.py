@@ -10,6 +10,10 @@ scaffold you scope to your repo.
 
 from __future__ import annotations
 
+import base64
+import json
+import re
+import subprocess
 from dataclasses import dataclass, field
 
 from ..schema import Charter
@@ -103,7 +107,7 @@ def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
 #            ├─▶ verify_github() ─▶ VerifyReport ─▶ json / human
 #   GitHubProtection ─┘             (drift? + unenforceable + note)
 #       ▲
-#       └── parse_protection(export dict)  |  (live: gh api → same shape, later)
+#       └── parse_protection(export dict)  |  fetch_live_protection (gh api → same shape)
 #
 # Comparison model (deliberately NOT path globs — the human owns scoping):
 #   • owner-set: accountable HUMANS across gated actions ⊆ live CODEOWNERS owners
@@ -235,4 +239,154 @@ def verify_github(
     return VerifyReport(
         project=charter.project, branch=branch, ok=not drift,
         findings=drift, unenforceable=unenforceable, note=None,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Live mode: read a repo's real protection via `gh api`, normalise into a
+# GitHubProtection, and hand it to verify_github. GitHub exposes protection two
+# ways — classic branch protection and rulesets (which can also come from the
+# org) — so we read BOTH and take the union (max reviews, OR code-owner-review).
+# A 404 on the classic-protection endpoint means "no classic protection", not an
+# error; a repo-level 404/401/403 or a missing `gh` means we COULD NOT CHECK
+# (distinct from drift — never a pass, never a fail).
+#
+#   gh api  ─▶ _classic_facts ┐
+#           ─▶ _ruleset_facts ┼─▶ protection_from_github ─▶ GitHubProtection
+#           ─▶ repo.allow_auto_merge ┘        ▲
+#           ─▶ CODEOWNERS file ──▶ parse_codeowners ┘
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class CouldNotCheck(Exception):
+    """verify could not read the live settings (no gh, auth, network, bad repo).
+
+    Distinct from drift: the CLI maps this to exit code 2, never to a pass or a
+    fail. A missing protection rule is *drift*; an inability to look is *this*.
+    """
+
+
+_OWNER_RE = re.compile(r"@([A-Za-z0-9][A-Za-z0-9/_.-]*)")
+_CODEOWNERS_PATHS = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")
+
+
+def parse_codeowners(text: str) -> list[str]:
+    """Owners mentioned anywhere in a CODEOWNERS file, ``@`` stripped.
+
+    We deliberately do NOT model path globs (the human owns scoping), so this
+    returns the union of every owner across all rules. ``@org/team`` entries come
+    back as ``org/team`` and email owners (``user@example.com``) as the domain —
+    neither matches an individual human name, a known limitation when a repo
+    scopes ownership to teams or emails (harmless to the subset check: a spurious
+    extra owner never causes drift).
+    """
+    owners: set[str] = set()
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0]
+        for m in _OWNER_RE.finditer(line):
+            owners.add(m.group(1))
+    return sorted(owners)
+
+
+def _classic_facts(protection: dict | None) -> tuple[int, bool]:
+    if not protection:
+        return (0, False)
+    rpr = protection.get("required_pull_request_reviews") or {}
+    return (
+        int(rpr.get("required_approving_review_count", 0) or 0),
+        bool(rpr.get("require_code_owner_reviews", False)),
+    )
+
+
+def _ruleset_facts(rules: list | None) -> tuple[int, bool]:
+    count, code_owner = 0, False
+    for rule in rules or []:
+        if rule.get("type") == "pull_request":
+            params = rule.get("parameters") or {}
+            count = max(count, int(params.get("required_approving_review_count", 0) or 0))
+            code_owner = code_owner or bool(params.get("require_code_owner_review", False))
+    return (count, code_owner)
+
+
+def protection_from_github(
+    *,
+    branch: str,
+    protection: dict | None = None,
+    rules: list | None = None,
+    repo: dict | None = None,
+    codeowners: str | None = None,
+) -> GitHubProtection:
+    """Normalise GitHub's raw API shapes into one GitHubProtection.
+
+    classic + rulesets are unioned: required reviews = max, code-owner review =
+    either. ``allow_auto_merge`` is a repo setting; ``code_owners`` come from the
+    CODEOWNERS file. Any source may be ``None`` (contributes its default).
+    """
+    c_count, c_co = _classic_facts(protection)
+    r_count, r_co = _ruleset_facts(rules)
+    return GitHubProtection(
+        branch=branch,
+        required_reviews=max(c_count, r_count),
+        require_code_owner_review=(c_co or r_co),
+        code_owners=parse_codeowners(codeowners) if codeowners else [],
+        allow_auto_merge=bool((repo or {}).get("allow_auto_merge", False)),
+    )
+
+
+def _default_runner(argv: list[str]) -> tuple[int, str, str]:
+    """Run a command, return (returncode, stdout, stderr). Injectable for tests."""
+    try:
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+    except FileNotFoundError as exc:
+        raise CouldNotCheck("the `gh` CLI is not installed or not on PATH.") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise CouldNotCheck("`gh api` timed out.") from exc
+    return (p.returncode, p.stdout, p.stderr)
+
+
+def _gh_api(runner, path: str, *, allow_404: bool = False):
+    """Call ``gh api <path>``; parse JSON. ``allow_404`` returns None on 404."""
+    rc, out, err = runner(["gh", "api", path])
+    if rc == 0:
+        try:
+            return json.loads(out) if out.strip() else None
+        except json.JSONDecodeError as exc:
+            raise CouldNotCheck(f"gh api {path}: unparseable response") from exc
+    low = (err or "").lower()
+    if allow_404 and ("404" in low or "not found" in low):
+        return None
+    if any(k in low for k in ("auth", "login", "401", "403", "forbidden")):
+        raise CouldNotCheck(f"gh api {path}: not authenticated/authorised "
+                            f"({err.strip().splitlines()[0] if err.strip() else 'auth error'})")
+    raise CouldNotCheck(f"gh api {path}: {err.strip().splitlines()[0] if err.strip() else 'failed'}")
+
+
+def _fetch_codeowners(runner, repo: str, branch: str) -> str | None:
+    """Return the first CODEOWNERS file found among the standard locations."""
+    for path in _CODEOWNERS_PATHS:
+        obj = _gh_api(runner, f"repos/{repo}/contents/{path}?ref={branch}", allow_404=True)
+        if obj and obj.get("encoding") == "base64" and obj.get("content"):
+            return base64.b64decode(obj["content"]).decode("utf-8", "replace")
+    return None
+
+
+def fetch_live_protection(repo: str, branch: str, *, runner=None) -> GitHubProtection:
+    """Read a repo's live protection via ``gh api`` and normalise it.
+
+    Raises CouldNotCheck on any inability to read (no gh, auth, bad repo). A
+    missing classic-protection rule or missing CODEOWNERS is NOT an error — it
+    just contributes nothing (and likely shows up as drift, which is correct).
+    """
+    runner = runner or _default_runner
+    # repos/{repo} first: a 404/403 here is a real "couldn't check" (bad repo or
+    # no access), not the benign "no protection configured" 404 below.
+    repo_obj = _gh_api(runner, f"repos/{repo}")
+    protection = _gh_api(
+        runner, f"repos/{repo}/branches/{branch}/protection", allow_404=True)
+    rules = _gh_api(
+        runner, f"repos/{repo}/rules/branches/{branch}", allow_404=True) or []
+    codeowners = _fetch_codeowners(runner, repo, branch)
+    return protection_from_github(
+        branch=branch, protection=protection, rules=rules,
+        repo=repo_obj, codeowners=codeowners,
     )

@@ -7,8 +7,8 @@
   validated charter into config for a target tool (claude/github are real;
   humanlayer/langgraph are stubs).
 * ``agenraci verify --target github`` — check that a branch's protection enforces
-  what the charter declares (read-only; offline ``--settings`` export for now,
-  live ``gh api`` reads land in a later v0.2 increment).
+  what the charter declares (read-only; live via ``--repo OWNER/REPO`` over
+  ``gh api``, or offline via a ``--settings`` export).
 """
 
 from __future__ import annotations
@@ -22,7 +22,12 @@ import typer
 from pydantic import ValidationError
 
 from .adapters import STUB_TARGETS, TARGETS
-from .adapters.github import parse_protection, verify_github
+from .adapters.github import (
+    CouldNotCheck,
+    fetch_live_protection,
+    parse_protection,
+    verify_github,
+)
 from .linter import EXPLANATIONS, RULES, lint
 from .loader import load_charter
 
@@ -437,8 +442,11 @@ def verify(
                                help="Enforcement target to verify against (github)."),
     settings: Path = typer.Option(
         None, "--settings", "-s", exists=True, readable=True,
-        help="Path to a branch-protection export (JSON) to verify against "
-             "offline. Live `gh api` reads land in a later increment.",
+        help="Offline mode: a branch-protection export (JSON) to verify against.",
+    ),
+    repo: str = typer.Option(
+        None, "--repo",
+        help="Live mode: OWNER/REPO to read protection from via `gh api`.",
     ),
     branch: str = typer.Option("main", "--branch",
                                help="The protected branch the charter governs."),
@@ -451,8 +459,9 @@ def verify(
 
     Read-only: AgenRACI compares the charter against a branch's protection
     settings and reports drift. It never changes the repo. The charter is a
-    *floor* — a repo whose settings are stricter passes. Exit codes: 0 clean,
-    1 drift, 2 could-not-check (bad input or unreadable charter).
+    *floor* — a repo whose settings are stricter passes. Pass `--repo OWNER/REPO`
+    to read live via `gh api`, or `--settings export.json` to verify offline.
+    Exit codes: 0 clean, 1 drift, 2 could-not-check (bad input/repo/auth).
     """
     if target != "github":
         _echo(f"{_RED}unknown --target {target!r}.{_RESET} "
@@ -462,9 +471,9 @@ def verify(
         _echo(f"{_RED}unknown --format {output_format!r}.{_RESET} "
               f"choose one of: human, json")
         raise typer.Exit(code=2)
-    if settings is None:
-        _echo(f"{_RED}✗ --settings is required{_RESET} — pass a branch-protection "
-              f"export to verify against (live `gh api` reads land later).")
+    if (settings is None) == (repo is None):
+        _echo(f"{_RED}✗ pass exactly one of --settings (offline) or --repo "
+              f"(live){_RESET}.")
         raise typer.Exit(code=2)
 
     try:
@@ -473,20 +482,29 @@ def verify(
         _echo(f"{_RED}✗ could not load {charter_path}:{_RESET} {exc}")
         raise typer.Exit(code=2)  # could-not-check, distinct from drift
 
-    try:
-        data = json.loads(settings.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001 - malformed JSON, etc.
-        _echo(f"{_RED}✗ could not read settings {settings}:{_RESET} {exc}")
-        raise typer.Exit(code=2)
+    if repo is not None:
+        if "/" not in repo:
+            _echo(f"{_RED}✗ --repo expects OWNER/REPO{_RESET}, got {repo!r}.")
+            raise typer.Exit(code=2)
+        try:
+            protection = fetch_live_protection(repo, branch)
+        except CouldNotCheck as exc:
+            _echo(f"{_RED}✗ could not check {repo}@{branch}:{_RESET} {exc}")
+            raise typer.Exit(code=2)
+    else:
+        try:
+            data = json.loads(settings.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001 - malformed JSON, etc.
+            _echo(f"{_RED}✗ could not read settings {settings}:{_RESET} {exc}")
+            raise typer.Exit(code=2)
+        # Surface a silent mismatch: the export may declare a different branch
+        # than the one we're verifying. Warn, don't fail — the user picked it.
+        exported = data.get("branch")
+        if exported is not None and str(exported) != branch:
+            _echo(f"{_DIM}note: settings export is for branch {exported!r}, "
+                  f"but verifying against {branch!r}.{_RESET}")
+        protection = parse_protection(data, branch=branch)
 
-    # Surface a silent mismatch: the export may declare a different branch than
-    # the one we're verifying. Warn, don't fail — the user picked --branch.
-    exported = data.get("branch")
-    if exported is not None and str(exported) != branch:
-        _echo(f"{_DIM}note: settings export is for branch {exported!r}, "
-              f"but verifying against {branch!r}.{_RESET}")
-
-    protection = parse_protection(data, branch=branch)
     report = verify_github(charter, protection, branch=branch)
 
     if output_format == "json":
@@ -511,8 +529,9 @@ def verify(
         return
 
     # human
+    source = f"repo {repo}" if repo is not None else f"settings {settings}"
     _echo(f"{_BOLD}AgenRACI verify (github):{_RESET} {report.project}  "
-          f"{_DIM}(branch {report.branch}, settings {settings}){_RESET}")
+          f"{_DIM}(branch {report.branch}, {source}){_RESET}")
     if report.note:
         _echo(f"{_DIM}{report.note}{_RESET}")
     for f in report.findings:

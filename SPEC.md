@@ -248,9 +248,11 @@ stub targets `(STUB)` in their output.
   is `block`). A gated action whose accountable role has no human member is
   reported as `unenforceable` (GitHub code owners must be human) rather than
   silently passing. Exit codes: `0` clean, `1` drift, `2` could-not-check (bad
-  input). In this v0.2 increment the branch settings come from an offline export
-  (`--settings <json>`); reading them live via `gh api` (and parsing GitHub's
-  classic-protection and ruleset shapes) is the next increment.
+  input). The branch settings come either live via `gh api` (`--repo
+  OWNER/REPO`, reading and unioning GitHub's classic branch-protection and
+  ruleset shapes) or from an offline export (`--settings <json>`). A 404 on the
+  branch-protection endpoint means "no classic protection" (benign); a repo-level
+  404/401/403 or a missing `gh` is could-not-check, never drift.
 
 ---
 
