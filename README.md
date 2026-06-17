@@ -255,6 +255,10 @@ Without that token, `continue-on-error: true` prevents a spurious could-not-chec
 exit from turning the build red and being misread as a charter violation. This
 is exactly what AgenRACI's own dogfood `verify` job does.
 
+For a step-by-step walkthrough of the full compile → apply → verify loop (with
+worked examples and exit-code explanations), see
+[**Check your repo**](docs/cookbook/check-your-repo.md).
+
 **pre-commit hook** — catch it before it's even committed:
 
 ```yaml
