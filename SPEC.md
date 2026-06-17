@@ -254,6 +254,17 @@ stub targets `(STUB)` in their output.
   branch-protection endpoint means "no classic protection" (benign); a repo-level
   404/401/403 or a missing `gh` is could-not-check, never drift.
 
+  A **composite GitHub Action** at `verify/action.yml` wraps this command for
+  CI use (referenced as `jing-ny/agenraci/verify@<ref>`). It accepts four
+  inputs — `charter` (default `charter.yaml`), `repo` (default
+  `${{ github.repository }}`), `branch` (default `main`), and `python-version`
+  (default `"3.12"`) — and propagates the `agenraci verify` exit code directly,
+  so drift fails the CI job. **Auth note:** the default `GITHUB_TOKEN` does not
+  have admin permission on the repo, so a live branch-protection check usually
+  exits 2 (could-not-check) rather than 1 (drift). Callers who need a real
+  drift check must supply an admin-scoped token via `GH_TOKEN`. The Action is
+  read-only and never modifies the repo or intercepts actions at runtime.
+
 ---
 
 ## 9. Resolved design decisions (v0.1)

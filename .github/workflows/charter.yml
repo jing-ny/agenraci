@@ -25,3 +25,27 @@ jobs:
         uses: ./ # dogfood AgenRACI's own Action against our own charter
         with:
           charter: governance/charter.yaml
+
+  verify:
+    # Dogfood the verify Action: check that this repo's live branch protection
+    # actually enforces what governance/charter.yaml declares.
+    #
+    # OPERATIONAL REALITY: reading live branch protection via `gh api` needs
+    # admin on the repo, which the default GITHUB_TOKEN does NOT have. So this
+    # job will usually hit a 403 -> exit code 2 (could-not-check), which is NOT
+    # drift. We mark it continue-on-error so a could-not-check never turns the
+    # build red and gets misread as a charter violation. When a maintainer wants
+    # a real drift check, run `agenraci verify` locally with an admin-scoped
+    # token, or grant a PAT here.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify live branch protection against the governance charter
+        uses: ./verify
+        with:
+          charter: governance/charter.yaml
+          branch: main

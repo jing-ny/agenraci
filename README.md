@@ -207,6 +207,54 @@ your README so every reader can see the charter passes:
 (This repo wears its own: the badge at the top runs AgenRACI's Action on
 `governance/charter.yaml` — we govern ourselves with the same check.)
 
+**GitHub Action (verify)** — check that your repo's branch protection actually
+matches what the charter declares:
+
+```yaml
+# .github/workflows/charter.yml  (add a second job alongside the validate job)
+  verify:
+    runs-on: ubuntu-latest
+    continue-on-error: true   # see auth caveat below
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jing-ny/agenraci/verify@<ref>
+        with:
+          charter: charter.yaml          # path to your charter
+          repo: ${{ github.repository }} # OWNER/REPO (default)
+          branch: main                   # protected branch (default)
+          python-version: "3.12"         # Python version (default)
+```
+
+This Action runs `agenraci verify --target github` against your repo's live
+branch protection and CODEOWNERS. It exits 1 if the repo drifts from the
+charter (for example, a required approver was removed from CODEOWNERS), and
+exits 0 if the branch enforces at least what the charter declares. The
+charter is a **floor**: a repo whose protection is *stricter* than the
+minimum the charter requires still passes. A gated action whose accountable
+role has no human member is reported as `unenforceable` — GitHub code owners
+must be human — neither pass nor fail.
+
+Exit codes: `0` = clean, `1` = drift, `2` = could-not-check.
+
+**Scope reminder.** The verify Action is read-only. It never POSTs to GitHub
+and never intercepts or enforces actions at runtime. It tells you whether
+drift exists; it does not fix it.
+
+**Auth caveat.** Reading live branch protection via `gh api` requires admin
+permission on the repo. The default `GITHUB_TOKEN` usually does **not** have
+it, so an out-of-the-box run typically exits 2 (could-not-check), not 1
+(drift). To get a real drift check, supply an admin-scoped token (for example
+a PAT stored as a repository secret):
+
+```yaml
+        env:
+          GH_TOKEN: ${{ secrets.ADMIN_PAT }}
+```
+
+Without that token, `continue-on-error: true` prevents a spurious could-not-check
+exit from turning the build red and being misread as a charter violation. This
+is exactly what AgenRACI's own dogfood `verify` job does.
+
 **pre-commit hook** — catch it before it's even committed:
 
 ```yaml
@@ -263,10 +311,13 @@ agenraci/
 - **v0.1 — write it and check it.** The charter format, the checker (R1–R6) with
   `validate --explain` plain-language fixes, worked examples (the Autopilot
   flagship + others), a template, a GitHub Action, and a pre-commit hook. ← you are here
-- **v0.2 — GitHub enforcement loop.** `agenraci verify --target github` checks a
-  live repo's branch protection and CODEOWNERS against the charter and fails CI on
-  drift; the `github` target also emits directly-applyable config. Still no runtime
-  interception — verify, don't intercept.
+- **v0.2 — GitHub enforcement loop.** `agenraci verify --target github` and the
+  companion `verify` GitHub Action are now in the repo (epic #58, deliverable 4):
+  they check a live repo's branch protection and CODEOWNERS against the charter
+  and fail CI on drift. The `github` compile target also emits directly-applyable
+  config. Still no runtime interception — verify, don't intercept. v0.2 has not
+  yet been cut as a formal release; the `verify` Action can be pinned to a commit
+  ref today.
 - **v0.3 — first runtime connector.** A working HumanLayer connector that turns
   charter gates into real approval pauses, plus a richer authority graph beyond
   gate `escalate_to` edges (standing veto relations).

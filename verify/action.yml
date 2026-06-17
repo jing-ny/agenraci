@@ -1,0 +1,54 @@
+name: AgenRACI — verify branch protection
+description: Verifies a branch's protection against the RACI charter and fails CI on drift; never intercepts or enforces at runtime.
+author: AgenRACI contributors
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  charter:
+    description: Path to the charter file to verify against.
+    required: false
+    default: charter.yaml
+  repo:
+    description: OWNER/REPO whose live branch protection to verify.
+    required: false
+    default: ${{ github.repository }}
+  branch:
+    description: The protected branch the charter governs.
+    required: false
+    default: main
+  python-version:
+    description: Python version to run the checker on.
+    required: false
+    default: "3.12"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install AgenRACI
+      shell: bash
+      # This Action lives in the `verify/` subdir, so `${{ github.action_path }}`
+      # points there; `/..` walks up to the repo root where pyproject.toml is.
+      # Installing from the action's own pinned checkout keeps the checker
+      # version matched to the `uses: jing-ny/agenraci/verify@<ref>` you pinned.
+      run: pip install "${{ github.action_path }}/.."
+
+    - name: Verify branch protection against the charter
+      shell: bash
+      # Pass every input through the environment, never interpolate it straight
+      # into the script — otherwise a caller who wires PR-controlled data into an
+      # input could inject shell commands. GH_TOKEN lets `gh api` authenticate
+      # when reading live branch protection.
+      env:
+        CHARTER: ${{ inputs.charter }}
+        REPO: ${{ inputs.repo }}
+        BRANCH: ${{ inputs.branch }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        agenraci verify "$CHARTER" --target github --repo "$REPO" --branch "$BRANCH"
