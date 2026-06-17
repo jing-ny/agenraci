@@ -84,12 +84,20 @@ def init(
         Path("charter.yaml"),
         help="Where to write the starter charter.",
     ),
+    stdout: bool = typer.Option(
+        False, "--stdout",
+        help="Print the starter charter to stdout instead of writing a file.",
+    ),
     force: bool = typer.Option(
         False, "--force", "-f",
         help="Overwrite the file if it already exists.",
     ),
 ) -> None:
     """Write a commented starter charter you can edit, then validate."""
+    if stdout:
+        _echo(_template_text())
+        return
+
     if charter_path.exists() and not force:
         _echo(f"{_RED}✗ {charter_path} already exists.{_RESET} "
               f"Pass {_BOLD}--force{_RESET} to overwrite, or choose another path.")
