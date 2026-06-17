@@ -202,11 +202,43 @@ runtime enforcement.
   `CLAUDE.md`. Multi-file output uses `--- FILE: <path> ---` markers;
   `compile --out-dir DIR` splits and writes them (with path-escape protection).
   Members' `model:` ids map onto Claude Code's model tokens when unambiguous.
-- `github` — **real**. Emits a CODEOWNERS starting point (humans accountable for
-  gated actions) and a branch-protection checklist derived from each gate
-  (required approver, whether timeout may auto-proceed, break-glass). Because a
-  charter governs action *types*, not file paths, the CODEOWNERS lines are a
-  scaffold to scope; a gate whose approver role has no human member is flagged.
+- `github` — **real**. Emits three things in one pass:
+
+  1. **CODEOWNERS scaffold** — one line per human member who is accountable for a
+     gated action. Because a charter governs action *types* not file paths, the
+     glob is `*` by default and must be scoped by the team. A gate whose accountable
+     role has no human member is flagged (GitHub code owners must be human).
+
+  2. **Branch-protection checklist** — a commented, human-readable summary of each
+     gated action: required approver, whether timeout may auto-proceed (low-risk
+     only), and the break-glass condition.
+
+  3. **Applyable branch-protection JSON** — the real GitHub classic branch-protection
+     PUT body, delimited by `# --- BEGIN protection.json ---` and
+     `# --- END protection.json ---`. Fields emitted: `required_status_checks`,
+     `enforce_admins`, `required_pull_request_reviews` (with
+     `required_approving_review_count` and `require_code_owner_reviews`), and
+     `restrictions`. Values are the charter floor: `required_approving_review_count`
+     is always `1`; `require_code_owner_reviews` is `true` only when a human is
+     accountable for at least one gated action (set to `false` with a note when
+     all accountable roles are agent-only, because GitHub code owners must be human
+     and reviews are still required). Immediately below the JSON, the output
+     includes a ready-to-run `gh api` apply command and an `agenraci verify`
+     round-trip step:
+
+     ```
+     gh api repos/OWNER/REPO/branches/BRANCH/protection \
+       --method PUT --input protection.json
+     agenraci verify CHARTER.yaml --repo OWNER/REPO   # should report CLEAN
+     ```
+
+     When any gated action carries `on_timeout: block`, a separate
+     `gh api repos/OWNER/REPO --method PATCH -f allow_auto_merge=false` hint is
+     appended, because auto-merge is a repo-level setting that is not part of the
+     classic branch-protection PUT body.
+
+  **Scope:** AgenRACI prints the JSON and the `gh api` command; the human runs them.
+  AgenRACI never POSTs, PUTs, or applies anything to GitHub.
 - `humanlayer` — **stub**: approval-gate routing (real emit: v0.3).
 - `langgraph` — **stub**: interrupt/checkpoint nodes (real emit: v0.4).
 

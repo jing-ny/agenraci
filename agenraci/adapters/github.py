@@ -90,6 +90,57 @@ def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
             out.append(f"#   • Break-glass: '{bg.who}' may override when {bg.condition} "
                        f"({after}).")
 
+    # --- Applyable branch-protection JSON ------------------------------------
+    # The checklist above is for a human reading; this block is for a human to
+    # apply verbatim. It is GitHub's classic branch-protection PUT body, with the
+    # exact fields `agenraci verify` reads back (see verify_github /
+    # _classic_facts), so the compile→apply→verify loop closes: apply this, then
+    # `agenraci verify CHARTER.yaml --repo OWNER/REPO` reports CLEAN against this charter.
+    #
+    # Derived strictly from the charter (the charter is a FLOOR, never inflated):
+    #   • required_approving_review_count = 1 (the charter's minimum).
+    #   • require_code_owner_reviews = true iff a HUMAN is accountable for some
+    #     gated action; with no human accountable, code owners can't be enforced
+    #     (owners must be human) so we don't pretend they are.
+    require_code_owner_reviews = bool(owners)
+    protection_body = {
+        "required_status_checks": None,
+        "enforce_admins": True,
+        "required_pull_request_reviews": {
+            "required_approving_review_count": 1,
+            "require_code_owner_reviews": require_code_owner_reviews,
+        },
+        "restrictions": None,
+    }
+
+    has_block_gate = any(a.gate.on_timeout == "block" for a in gated.values())
+
+    out.append("")
+    out.append("# ── Applyable branch protection (classic) ───────────────────────")
+    out.append("# This is GitHub's branch-protection PUT body. AgenRACI does NOT apply")
+    out.append("# it — you run the command below yourself. Save the JSON to a file (it")
+    out.append("# is everything between the BEGIN/END markers), set OWNER/REPO/BRANCH,")
+    out.append("# then apply and verify:")
+    out.append("#")
+    out.append("#   gh api repos/OWNER/REPO/branches/BRANCH/protection \\")
+    out.append("#     --method PUT --input protection.json")
+    out.append("#   agenraci verify CHARTER.yaml --repo OWNER/REPO   # should report CLEAN")
+    if not require_code_owner_reviews:
+        out.append("#")
+        out.append("# Note: no human is accountable for a gated action, so code-owner")
+        out.append("# review is left OFF (GitHub code owners must be human — requiring it")
+        out.append("# would enforce nothing). Reviews are still required.")
+    if has_block_gate:
+        out.append("#")
+        out.append("# A gated action declares on_timeout=block, so it must never proceed")
+        out.append("# unreviewed. Auto-merge is a REPO setting (not in this PUT body) —")
+        out.append("# turn it off at the repo level:")
+        out.append("#")
+        out.append("#   gh api repos/OWNER/REPO --method PATCH -f allow_auto_merge=false")
+    out.append("# --- BEGIN protection.json ---")
+    out.extend(json.dumps(protection_body, indent=2).splitlines())
+    out.append("# --- END protection.json ---")
+
     return "\n".join(out) + "\n"
 
 

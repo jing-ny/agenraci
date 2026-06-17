@@ -155,7 +155,7 @@ agenraci validate --explain <charter.yaml>       # ...and a plain-language fix u
 agenraci validate --format github <charter>      # ...and ::error annotations for GitHub Actions
 agenraci schema                                  # print the charter JSON Schema (for editor autocomplete)
 agenraci compile --target claude <charter> -o .  # emit .claude/agents/ definitions + a CLAUDE.md snippet
-agenraci compile --target github     <charter>   # emit CODEOWNERS + branch-protection guidance
+agenraci compile --target github     <charter>   # emit CODEOWNERS + branch-protection checklist + applyable protection.json
 agenraci compile --target humanlayer <charter>   # placeholder in v0.1
 agenraci compile --target langgraph  <charter>   # placeholder in v0.1
 ```
@@ -314,10 +314,16 @@ agenraci/
 - **v0.2 — GitHub enforcement loop.** `agenraci verify --target github` and the
   companion `verify` GitHub Action are now in the repo (epic #58, deliverable 4):
   they check a live repo's branch protection and CODEOWNERS against the charter
-  and fail CI on drift. The `github` compile target also emits directly-applyable
-  config. Still no runtime interception — verify, don't intercept. v0.2 has not
-  yet been cut as a formal release; the `verify` Action can be pinned to a commit
-  ref today.
+  and fail CI on drift. `agenraci compile --target github` now also emits an
+  applyable classic branch-protection JSON (the real PUT body) delimited by
+  `# --- BEGIN protection.json ---` / `# --- END protection.json ---`, together
+  with a ready-to-run `gh api repos/OWNER/REPO/branches/BRANCH/protection
+  --method PUT --input protection.json` command and an `agenraci verify --repo
+  OWNER/REPO` round-trip step — closing the compile → apply → verify loop
+  (epic #58, deliverable 3). AgenRACI prints the JSON and command; the human runs
+  them. Still no runtime interception — verify, don't intercept. v0.2 has not yet
+  been cut as a formal release; the `verify` Action and the applyable compile
+  output can be pinned to a commit ref today.
 - **v0.3 — first runtime connector.** A working HumanLayer connector that turns
   charter gates into real approval pauses, plus a richer authority graph beyond
   gate `escalate_to` edges (standing veto relations).

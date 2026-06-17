@@ -1,14 +1,25 @@
 """Tests for `agenraci compile` — the real github target and the stubs."""
 
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
 
+from agenraci.adapters import github as gh
 from agenraci.cli import app
+from agenraci.loader import load_charter
 
 runner = CliRunner()
 
 GOVERNANCE = "governance/charter.yaml"
+
+
+def _protection_json_from(out: str) -> dict:
+    """Extract and parse the JSON between the protection BEGIN/END markers."""
+    begin = out.index("# --- BEGIN protection.json ---")
+    end = out.index("# --- END protection.json ---")
+    body = out[begin:end].split("\n", 1)[1]
+    return json.loads(body)
 
 
 def test_compile_github_emits_codeowners_and_branch_protection():
@@ -25,6 +36,93 @@ def test_compile_github_emits_codeowners_and_branch_protection():
     assert "Do NOT enable auto-merge" in out
     # github is real, so it must NOT be labelled a stub.
     assert "STUB" not in out
+
+
+def test_compile_github_emits_applyable_protection_json():
+    """The new block is real GitHub PUT JSON that round-trips with verify.
+
+    The checklist/CODEOWNERS still emits (kept), and the emitted JSON satisfies
+    exactly what verify_github reads: >=1 required review, and code-owner review
+    required because the governance charter has human-accountable gated actions.
+    """
+    result = runner.invoke(app, ["compile", "--target", "github", GOVERNANCE])
+    assert result.exit_code == 0
+    out = result.stdout
+    # The existing human guidance is untouched.
+    assert "CODEOWNERS" in out
+    assert "Branch protection" in out
+    # The new applyable section + the ready-to-run command.
+    assert "gh api repos/OWNER/REPO/branches/BRANCH/protection" in out
+    # The verify round-trip command must include the REQUIRED positional charter
+    # path, or it exits 2 ("Missing argument 'CHARTER_PATH'") when pasted.
+    verify_line = next(ln for ln in out.splitlines() if "agenraci verify" in ln)
+    assert "CHARTER.yaml" in verify_line
+    assert "--repo OWNER/REPO" in verify_line
+
+    body = _protection_json_from(out)
+    rpr = body["required_pull_request_reviews"]
+    assert rpr["required_approving_review_count"] >= 1
+    # governance charter: maintainer (human) is accountable for gated actions.
+    assert rpr["require_code_owner_reviews"] is True
+    # Real PUT shape: these keys must be present (nullable) for GitHub to accept it.
+    assert set(body) >= {
+        "required_status_checks", "enforce_admins",
+        "required_pull_request_reviews", "restrictions",
+    }
+
+    # Fact-level round trip: the emitted body, read by the live verifier's own
+    # normaliser, must satisfy verify_github against the same charter.
+    charter = load_charter(GOVERNANCE)
+    protection = gh.protection_from_github(branch="main", protection=body)
+    # The CODEOWNERS owner-set drift is independent of this JSON; check the two
+    # facts this block is responsible for are clean.
+    report = gh.verify_github(charter, gh.GitHubProtection(
+        branch="main",
+        required_reviews=protection.required_reviews,
+        require_code_owner_review=protection.require_code_owner_review,
+        code_owners=sorted({
+            h for a in charter.actions.values() if a.gate is not None
+            for r in a.accountable
+            for m in charter.members
+            if m.role == r and m.type == "human" and (h := m.name)
+        }),
+        allow_auto_merge=False,
+    ))
+    assert report.ok, [f.message for f in report.findings]
+
+
+def test_compile_github_no_human_accountable_omits_code_owner_review():
+    """Agent-only gated action: reviews required, but code-owner review stays OFF.
+
+    The relay example is all-agent (no human members), so no human is accountable
+    for its gated actions. Mirrors verify_github treating code-owner enforcement
+    as impossible without a human owner — we must not emit JSON that pretends
+    otherwise.
+    """
+    result = runner.invoke(
+        app, ["compile", "--target", "github", "examples/relay/charter.yaml"])
+    assert result.exit_code == 0
+    body = _protection_json_from(result.stdout)
+    rpr = body["required_pull_request_reviews"]
+    assert rpr["required_approving_review_count"] >= 1
+    assert rpr["require_code_owner_reviews"] is False
+    # on_timeout=block -> the repo-level auto-merge-off hint must appear.
+    assert "allow_auto_merge=false" in result.stdout
+
+
+def test_compile_github_no_gates_emits_no_protection_json(tmp_path, monkeypatch):
+    """No gated action -> early return; no protection JSON block at all."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "nogate.yaml").write_text(
+        "project: nogate\n"
+        "roles: [a]\n"
+        "actions:\n"
+        "  x: { responsible: a, accountable: a }\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["compile", "--target", "github", "nogate.yaml"])
+    assert result.exit_code == 0
+    assert "BEGIN protection.json" not in result.stdout
 
 
 def test_compile_github_flags_non_human_approver():
