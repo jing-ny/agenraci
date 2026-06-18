@@ -36,6 +36,16 @@ def test_init_writes_a_charter_that_validates(tmp_path, monkeypatch):
     assert "PASS" in check.stdout
 
 
+def test_init_stdout_prints_template_without_writing_file(tmp_path, monkeypatch):
+    """`init --stdout` prints the starter charter and skips filesystem writes."""
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["init", "--stdout"])
+    assert result.exit_code == 0
+    assert "project:" in result.stdout
+    assert not (tmp_path / "charter.yaml").exists()
+
+
 def test_validate_accepts_multiple_charters(tmp_path, monkeypatch):
     """`validate` checks every path given and exits non-zero if any fails."""
     monkeypatch.chdir(tmp_path)
