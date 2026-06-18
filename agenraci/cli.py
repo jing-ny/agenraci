@@ -26,6 +26,7 @@ from .adapters.github import (
     CouldNotCheck,
     fetch_live_protection,
     parse_protection,
+    sweep_org,
     verify_github,
 )
 from .linter import EXPLANATIONS, RULES, lint
@@ -442,6 +443,79 @@ def compile(  # noqa: A001 - this is the user-facing verb
         _echo(f"{_GREEN}✓{_RESET} wrote {dest}")
 
 
+def _verify_org(charter, charter_path: Path, org: str, branch: str,
+                output_format: str) -> None:
+    """Sweep every repo in an org against the charter and render the result."""
+    try:
+        sweep = sweep_org(charter, org, branch=branch)
+    except CouldNotCheck as exc:
+        _echo(f"{_RED}✗ could not sweep org {org}:{_RESET} {exc}")
+        raise typer.Exit(code=2)
+
+    drifted = [r for r in sweep.results if r.status == "drift"]
+    unreadable = [r for r in sweep.results if r.status == "could-not-check"]
+
+    if output_format == "json":
+        _echo(json.dumps({
+            "charter": str(charter_path),
+            "project": charter.project,
+            "target": "github",
+            "org": sweep.org,
+            "branch": sweep.branch,
+            "ok": sweep.ok,
+            "truncated": sweep.truncated,
+            "repos": [
+                {
+                    "repo": r.repo,
+                    "status": r.status,
+                    "error": r.error,
+                    "note": r.report.note if r.report else None,
+                    "findings": [
+                        {"target": f.target, "kind": f.kind, "message": f.message}
+                        for f in (r.report.findings if r.report else [])
+                    ],
+                    "unenforceable": [
+                        {"target": f.target, "kind": f.kind, "message": f.message}
+                        for f in (r.report.unenforceable if r.report else [])
+                    ],
+                }
+                for r in sweep.results
+            ],
+        }))
+        if not sweep.ok:
+            raise typer.Exit(code=1)
+        return
+
+    # human
+    _echo(f"{_BOLD}AgenRACI verify (github):{_RESET} {charter.project}  "
+          f"{_DIM}(org {sweep.org}, branch {sweep.branch}, "
+          f"{len(sweep.results)} repos){_RESET}")
+    if not sweep.results:
+        _echo(f"{_DIM}0 repos found for org {sweep.org} — nothing to verify.{_RESET}")
+        return
+    if sweep.truncated:
+        _echo(f"{_RED}warning: the org has more repos than the listing limit; "
+              f"this audit is INCOMPLETE.{_RESET}")
+    for r in sweep.results:
+        if r.status == "clean":
+            extra = (f" {_DIM}({len(r.report.unenforceable)} unenforceable){_RESET}"
+                     if r.report and r.report.unenforceable else "")
+            _echo(f"  {_GREEN}✓{_RESET} {r.repo}{extra}")
+        elif r.status == "drift":
+            n = len(r.report.findings) if r.report else 0
+            _echo(f"  {_RED}✗ {r.repo}{_RESET} — {n} drift")
+        else:  # could-not-check
+            _echo(f"  {_DIM}? {r.repo} — could not check: {r.error}{_RESET}")
+    _echo()
+    tail = f"; {len(unreadable)} could not be checked" if unreadable else ""
+    if drifted:
+        _echo(f"{_RED}{_BOLD}DRIFT{_RESET} — {len(drifted)} of {len(sweep.results)} "
+              f"repo(s) drift from the charter{tail}.")
+        raise typer.Exit(code=1)
+    _echo(f"{_GREEN}{_BOLD}OK{_RESET} — all {len(sweep.results)} repo(s) enforce "
+          f"the charter{tail}.")
+
+
 @app.command()
 def verify(
     charter_path: Path = typer.Argument(..., exists=True, readable=True,
@@ -456,6 +530,11 @@ def verify(
         None, "--repo",
         help="Live mode: OWNER/REPO to read protection from via `gh api`.",
     ),
+    org: str = typer.Option(
+        None, "--org",
+        help="Sweep mode: verify every repo in a GitHub org (or user account) "
+             "against the charter.",
+    ),
     branch: str = typer.Option("main", "--branch",
                                help="The protected branch the charter governs."),
     output_format: str = typer.Option(
@@ -468,8 +547,9 @@ def verify(
     Read-only: AgenRACI compares the charter against a branch's protection
     settings and reports drift. It never changes the repo. The charter is a
     *floor* — a repo whose settings are stricter passes. Pass `--repo OWNER/REPO`
-    to read live via `gh api`, or `--settings export.json` to verify offline.
-    Exit codes: 0 clean, 1 drift, 2 could-not-check (bad input/repo/auth).
+    to read one repo live via `gh api`, `--org ORG` to sweep every repo in an
+    org, or `--settings export.json` to verify offline. Exit codes: 0 clean,
+    1 drift, 2 could-not-check (bad input/repo/auth).
     """
     if target != "github":
         _echo(f"{_RED}unknown --target {target!r}.{_RESET} "
@@ -479,9 +559,9 @@ def verify(
         _echo(f"{_RED}unknown --format {output_format!r}.{_RESET} "
               f"choose one of: human, json")
         raise typer.Exit(code=2)
-    if (settings is None) == (repo is None):
-        _echo(f"{_RED}✗ pass exactly one of --settings (offline) or --repo "
-              f"(live){_RESET}.")
+    if sum(x is not None for x in (settings, repo, org)) != 1:
+        _echo(f"{_RED}✗ pass exactly one of --settings (offline), --repo (one "
+              f"live repo), or --org (sweep an org){_RESET}.")
         raise typer.Exit(code=2)
 
     try:
@@ -489,6 +569,10 @@ def verify(
     except Exception as exc:  # noqa: BLE001 - schema error, malformed YAML, etc.
         _echo(f"{_RED}✗ could not load {charter_path}:{_RESET} {exc}")
         raise typer.Exit(code=2)  # could-not-check, distinct from drift
+
+    if org is not None:
+        _verify_org(charter, charter_path, org, branch, output_format)
+        return
 
     if repo is not None:
         if "/" not in repo:

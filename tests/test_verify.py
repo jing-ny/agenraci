@@ -467,3 +467,155 @@ def test_cli_verify_repo_without_slash_exit_two(tmp_path):
     result = runner.invoke(app, ["verify", str(charter), "--repo", "noslug"])
     assert result.exit_code == 2
     assert "OWNER/REPO" in result.stdout
+
+
+# ---- v0.2.1: org-wide sweep -------------------------------------------------
+
+from agenraci.adapters.github import (  # noqa: E402
+    OrgSweepReport,
+    RepoResult,
+    VerifyFinding,
+    VerifyReport,
+    sweep_org,
+)
+
+
+def _sweep_runner(repo_specs):
+    """Fake runner handling both `gh repo list` and per-repo `gh api` calls.
+
+    repo_specs maps "owner/name" -> "clean" | "drift" | "error".
+    """
+    names = list(repo_specs)
+
+    def run(argv):
+        if argv[:3] == ["gh", "repo", "list"]:
+            return (0, json.dumps([{"nameWithOwner": n} for n in names]), "")
+        path = argv[-1]
+        repo = next((n for n in names if f"repos/{n}" in path), None)
+        if repo is None:
+            return (1, "", "404 Not Found")
+        spec = repo_specs[repo]
+        if spec == "error":
+            return (1, "", "HTTP 403: Forbidden")  # repo-level -> CouldNotCheck
+        if "/protection" in path:
+            if spec == "clean":
+                return (0, json.dumps({"required_pull_request_reviews": {
+                    "required_approving_review_count": 1,
+                    "require_code_owner_reviews": True}}), "")
+            return (1, "", "404 Not Found")  # drift: no classic protection
+        if "/rules/branches/" in path:
+            return (0, "[]", "")
+        if "/contents/" in path:
+            if spec == "clean":
+                enc = base64.b64encode(b"* @alice").decode()
+                return (0, json.dumps({"encoding": "base64", "content": enc}), "")
+            return (1, "", "404 Not Found")  # drift: no CODEOWNERS
+        return (0, '{"allow_auto_merge": false}', "")  # repos/{repo}
+
+    return run
+
+
+def test_sweep_org_aggregates_clean_drift_and_unreadable(tmp_path):
+    charter = load_charter(_charter(tmp_path, _HUMAN_GATED))
+    runner_fn = _sweep_runner(
+        {"o/clean": "clean", "o/drifty": "drift", "o/locked": "error"})
+    report = sweep_org(charter, "o", runner=runner_fn)
+    assert report.ok is False  # o/drifty drifts
+    assert {r.repo: r.status for r in report.results} == {
+        "o/clean": "clean", "o/drifty": "drift", "o/locked": "could-not-check"}
+    # An unreadable repo is isolated, not fatal — the sweep still ran the others.
+    locked = next(r for r in report.results if r.repo == "o/locked")
+    assert locked.report is None and "403" in locked.error
+
+
+def test_sweep_org_all_clean_is_ok(tmp_path):
+    charter = load_charter(_charter(tmp_path, _HUMAN_GATED))
+    report = sweep_org(charter, "o",
+                       runner=_sweep_runner({"o/a": "clean", "o/b": "clean"}))
+    assert report.ok is True
+    assert all(r.status == "clean" for r in report.results)
+
+
+def test_sweep_org_listing_failure_is_could_not_check(tmp_path):
+    charter = load_charter(_charter(tmp_path, _HUMAN_GATED))
+
+    def boom(argv):
+        if argv[:3] == ["gh", "repo", "list"]:
+            return (1, "", "HTTP 404: Not Found")
+        return (0, "", "")
+    with __import__("pytest").raises(CouldNotCheck):
+        sweep_org(charter, "ghost-org", runner=boom)
+
+
+def test_cli_verify_org_json(tmp_path, monkeypatch):
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    fake = OrgSweepReport(org="o", branch="main", ok=False, results=[
+        RepoResult("o/a", "clean", report=VerifyReport(
+            project="t", branch="main", ok=True, findings=[], unenforceable=[])),
+        RepoResult("o/b", "could-not-check", error="HTTP 403: Forbidden"),
+    ])
+    monkeypatch.setattr("agenraci.cli.sweep_org", lambda c, o, branch="main": fake)
+    result = runner.invoke(app, ["verify", str(charter), "--org", "o",
+                                 "--format", "json"])
+    assert result.exit_code == 1  # not ok
+    payload = json.loads(result.stdout)
+    assert payload["org"] == "o"
+    assert {r["repo"]: r["status"] for r in payload["repos"]} == {
+        "o/a": "clean", "o/b": "could-not-check"}
+
+
+def test_cli_verify_three_modes_are_mutually_exclusive(tmp_path):
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    settings = _settings(tmp_path, code_owners=["alice"], required_reviews=1)
+    # repo + org together -> exit 2
+    r1 = runner.invoke(app, ["verify", str(charter), "--repo", "o/r", "--org", "o"])
+    assert r1.exit_code == 2 and "exactly one" in r1.stdout
+    # settings + org together -> exit 2
+    r2 = runner.invoke(app, ["verify", str(charter), "--settings", str(settings),
+                             "--org", "o"])
+    assert r2.exit_code == 2
+
+
+def test_cli_verify_org_human_format(tmp_path, monkeypatch):
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    fake = OrgSweepReport(org="o", branch="main", ok=False, results=[
+        RepoResult("o/a", "clean", report=VerifyReport(
+            project="t", branch="main", ok=True, findings=[], unenforceable=[])),
+        RepoResult("o/b", "drift", report=VerifyReport(
+            project="t", branch="main", ok=False,
+            findings=[VerifyFinding("main", "drift", "no review required")],
+            unenforceable=[])),
+    ])
+    monkeypatch.setattr("agenraci.cli.sweep_org", lambda c, o, branch="main": fake)
+    result = runner.invoke(app, ["verify", str(charter), "--org", "o"])
+    assert result.exit_code == 1
+    assert "o/a" in result.stdout and "o/b" in result.stdout
+    assert "DRIFT" in result.stdout and "1 of 2" in result.stdout
+
+
+def test_sweep_org_flags_truncation_when_org_exceeds_limit(tmp_path):
+    """A clean verdict must never be mistaken for a complete audit (truncation)."""
+    charter = load_charter(_charter(tmp_path, _HUMAN_GATED))
+    runner_fn = _sweep_runner({"o/a": "clean", "o/b": "clean"})
+    # limit == number of repos returned -> there may be more -> truncated.
+    assert sweep_org(charter, "o", runner=runner_fn, limit=2).truncated is True
+    # limit comfortably above the count -> not truncated.
+    assert sweep_org(charter, "o", runner=runner_fn, limit=10).truncated is False
+
+
+def test_sweep_org_empty_org_is_ok_with_no_results(tmp_path):
+    charter = load_charter(_charter(tmp_path, _HUMAN_GATED))
+    report = sweep_org(charter, "empty", runner=_sweep_runner({}))
+    assert report.results == [] and report.ok is True and report.truncated is False
+
+
+def test_cli_verify_org_empty_says_nothing_to_verify(tmp_path, monkeypatch):
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    monkeypatch.setattr(
+        "agenraci.cli.sweep_org",
+        lambda c, o, branch="main": OrgSweepReport(
+            org="empty", branch="main", ok=True, results=[]),
+    )
+    result = runner.invoke(app, ["verify", str(charter), "--org", "empty"])
+    assert result.exit_code == 0
+    assert "0 repos found" in result.stdout
