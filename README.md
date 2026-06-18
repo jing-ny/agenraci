@@ -314,20 +314,17 @@ agenraci/
 
 - **v0.1 — write it and check it.** The charter format, the checker (R1–R6) with
   `validate --explain` plain-language fixes, worked examples (the Autopilot
-  flagship + others), a template, a GitHub Action, and a pre-commit hook. ← you are here
-- **v0.2 — GitHub enforcement loop.** `agenraci verify --target github` and the
-  companion `verify` GitHub Action are now in the repo (epic #58, deliverable 4):
-  they check a live repo's branch protection and CODEOWNERS against the charter
-  and fail CI on drift. `agenraci compile --target github` now also emits an
-  applyable classic branch-protection JSON (the real PUT body) delimited by
-  `# --- BEGIN protection.json ---` / `# --- END protection.json ---`, together
-  with a ready-to-run `gh api repos/OWNER/REPO/branches/BRANCH/protection
-  --method PUT --input protection.json` command and an `agenraci verify --repo
-  OWNER/REPO` round-trip step — closing the compile → apply → verify loop
-  (epic #58, deliverable 3). AgenRACI prints the JSON and command; the human runs
-  them. Still no runtime interception — verify, don't intercept. v0.2 has not yet
-  been cut as a formal release; the `verify` Action and the applyable compile
-  output can be pinned to a commit ref today.
+  flagship + others), a template, a GitHub Action, and a pre-commit hook.
+- **v0.2 — GitHub enforcement loop.** ← you are here. `agenraci verify --target
+  github` checks a live repo's branch protection and CODEOWNERS against the charter
+  and fails CI on drift — offline `--settings` mode (#60) and live `--repo` mode
+  via `gh api` (#61). The companion `verify` GitHub Action (#62) drops into any
+  workflow in two lines (dogfooded here; live branch-protection reads need admin
+  scope, so the dogfood job uses `continue-on-error`). `agenraci compile --target
+  github` (#63) now also emits a directly-applyable classic branch-protection PUT
+  JSON, a ready-to-run `gh api` command, and a verify round-trip step — closing the
+  compile → apply → verify loop. A step-by-step cookbook (#65) walks the whole loop
+  end-to-end. Still no runtime interception — verify, don't intercept.
 - **v0.3 — first runtime connector.** A working HumanLayer connector that turns
   charter gates into real approval pauses, plus a richer authority graph beyond
   gate `escalate_to` edges (standing veto relations).

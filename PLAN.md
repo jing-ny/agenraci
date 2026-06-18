@@ -85,7 +85,12 @@ one strong public moment — without over-promising the v0.2 runtime control pla
 
 ## Phase 3 — Post-launch (Week 2-3)
 - [ ] Triage issues/PRs/comments fast (sets whether contributors return)
-- [x] Ship R6 acyclic-authority check — [#8](https://github.com/jing-ny/agenraci/issues/8) (already active in `linter.py`); pick a fresh first v0.2 increment (e.g. HumanLayer connector spike)
+- [x] Ship R6 acyclic-authority check — [#8](https://github.com/jing-ny/agenraci/issues/8) (already active in `linter.py`)
+- [x] **v0.2.0 ready — GitHub enforcement loop.** `agenraci verify --target github`
+      offline `--settings` mode ([#60](https://github.com/jing-ny/agenraci/pull/60)) and live `--repo` mode ([#61](https://github.com/jing-ny/agenraci/pull/61)); `verify` GitHub
+      Action ([#62](https://github.com/jing-ny/agenraci/pull/62)); `compile --target github` now emits applyable branch-protection JSON +
+      `gh api` command + verify round-trip step ([#63](https://github.com/jing-ny/agenraci/pull/63)); "Check your repo" cookbook ([#65](https://github.com/jing-ny/agenraci/pull/65)).
+      Code + docs merged, version bumped to **v0.2.0** — pending tag + PyPI publish (charter gate A7_publish_release). HumanLayer connector moved to v0.3; LangGraph to v0.4.
 - [ ] Write "what I learned launching" retro post
 - [ ] Measure: stars, PyPI downloads, unique visitors — watch for *real adopters*, not vanity metrics
 
