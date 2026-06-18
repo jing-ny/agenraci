@@ -441,3 +441,75 @@ def fetch_live_protection(repo: str, branch: str, *, runner=None) -> GitHubProte
         branch=branch, protection=protection, rules=rules,
         repo=repo_obj, codeowners=codeowners,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Org sweep: run verify across every repo in an org against one charter, and
+# aggregate. The killer governance-audit scenario — "does every repo in our org
+# enforce our accountability rules?". One repo that can't be read is isolated
+# (reported could-not-check) so it never crashes the sweep; the overall result
+# fails only on actual drift.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class RepoResult:
+    repo: str
+    status: str  # "clean" | "drift" | "could-not-check"
+    report: VerifyReport | None = None
+    error: str | None = None
+
+
+@dataclass
+class OrgSweepReport:
+    org: str
+    branch: str
+    results: list[RepoResult]
+    ok: bool  # True if no repo drifted (could-not-check does not flip ok)
+    truncated: bool = False  # the org has MORE repos than the listing limit
+
+
+def _list_org_repos(org: str, *, runner, limit: int = 1000) -> list[str]:
+    """Every repo's ``owner/name`` in an org (via ``gh repo list``)."""
+    rc, out, err = runner(
+        ["gh", "repo", "list", org, "--limit", str(limit), "--json", "nameWithOwner"])
+    if rc != 0:
+        first = err.strip().splitlines()[0] if err.strip() else "failed"
+        raise CouldNotCheck(f"gh repo list {org}: {first}")
+    try:
+        data = json.loads(out) if out.strip() else []
+    except json.JSONDecodeError as exc:
+        raise CouldNotCheck(f"gh repo list {org}: unparseable response") from exc
+    return [r["nameWithOwner"] for r in data]
+
+
+def sweep_org(
+    charter: Charter, org: str, *, branch: str = "main", runner=None, limit: int = 1000
+) -> OrgSweepReport:
+    """Verify every repo in ``org`` against one charter, aggregating the result.
+
+    Listing the org is itself a could-not-check failure (raises CouldNotCheck);
+    a single repo that can't be read is isolated into a per-repo
+    ``could-not-check`` result so the rest of the sweep still runs. If the org has
+    more repos than ``limit``, ``truncated`` is set so a clean verdict is never
+    mistaken for a complete audit.
+    """
+    runner = runner or _default_runner
+    repos = _list_org_repos(org, runner=runner, limit=limit)
+    truncated = len(repos) >= limit
+    results: list[RepoResult] = []
+    any_drift = False
+    for repo in repos:
+        try:
+            protection = fetch_live_protection(repo, branch, runner=runner)
+        except CouldNotCheck as exc:
+            results.append(RepoResult(repo, "could-not-check", error=str(exc)))
+            continue
+        report = verify_github(charter, protection, branch=branch)
+        if report.ok:
+            results.append(RepoResult(repo, "clean", report=report))
+        else:
+            any_drift = True
+            results.append(RepoResult(repo, "drift", report=report))
+    return OrgSweepReport(org=org, branch=branch, results=results,
+                          ok=not any_drift, truncated=truncated)

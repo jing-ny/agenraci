@@ -285,6 +285,16 @@ stub targets `(STUB)` in their output.
   ruleset shapes) or from an offline export (`--settings <json>`). A 404 on the
   branch-protection endpoint means "no classic protection" (benign); a repo-level
   404/401/403 or a missing `gh` is could-not-check, never drift.
+  - `--org ORG` sweeps **every repo in an org** (or a user account) against one
+    charter (the governance-audit case: "does the whole org enforce our
+    accountability rules?"), aggregating into one report. A single repo that
+    can't be read is isolated as `could-not-check` so it never crashes the sweep;
+    the overall exit is `1` if **any** repo drifts, `0` otherwise. Exactly one of
+    `--settings`, `--repo`, or `--org` is required. The sweep is sequential (~4
+    `gh api` calls per repo), so large orgs are slow and may hit rate limits (a
+    rate-limited repo surfaces as `could-not-check`). The org listing is capped
+    (1000 repos); beyond that the report is flagged `truncated` so a clean
+    verdict is never mistaken for a complete audit.
 
   A **composite GitHub Action** at `verify/action.yml` wraps this command for
   CI use (referenced as `jing-ny/agenraci/verify@<ref>`). It accepts four
