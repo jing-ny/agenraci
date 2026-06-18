@@ -202,11 +202,16 @@ runtime enforcement.
   `CLAUDE.md`. Multi-file output uses `--- FILE: <path> ---` markers;
   `compile --out-dir DIR` splits and writes them (with path-escape protection).
   Members' `model:` ids map onto Claude Code's model tokens when unambiguous.
-- `github` — **real**. Emits a CODEOWNERS starting point (humans accountable for
-  gated actions) and a branch-protection checklist derived from each gate
-  (required approver, whether timeout may auto-proceed, break-glass). Because a
-  charter governs action *types*, not file paths, the CODEOWNERS lines are a
-  scaffold to scope; a gate whose approver role has no human member is flagged.
+- `github` — **real**, multi-file (`--- FILE: <path> ---`; `--out-dir` writes
+  them). Emits an applyable **CODEOWNERS** (a real `*` line of the humans
+  accountable for gated actions — scope its glob, since a charter governs action
+  *types*, not file paths), a **github-ruleset.json** repo-ruleset payload (the
+  charter as a floor: ≥1 approving review + code-owner review on the default
+  branch), and **github-setup.md** with the apply command and the per-action
+  notes a ruleset can't express (auto-proceed, escalation, break-glass; a gate
+  whose approver role has no human member is flagged). It is a copy-paste
+  artifact — AgenRACI never POSTs it. Pair it with `agenraci verify` to check the
+  applied settings stay in sync.
 - `humanlayer` — **stub**: approval-gate routing (real emit: v0.3).
 - `langgraph` — **stub**: interrupt/checkpoint nodes (real emit: v0.4).
 

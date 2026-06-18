@@ -1,6 +1,7 @@
 """Adapters compile a validated charter into config for existing tools.
 
-The ``github`` target (CODEOWNERS + branch-protection guidance) and the
+The ``github`` target (an applyable CODEOWNERS + a repo-ruleset JSON + setup
+notes) and the
 ``claude`` target (``.claude/agents/`` definitions + a CLAUDE.md governance
 snippet) are **real**. The ``humanlayer`` and ``langgraph`` targets are still
 **stubs**; their real emit logic lands in later versions (HumanLayer in v0.3,

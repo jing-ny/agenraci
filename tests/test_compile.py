@@ -129,12 +129,65 @@ def test_compile_claude_out_dir_writes_files(tmp_path):
 
 
 def test_compile_out_dir_rejects_single_document_target(tmp_path):
-    """--out-dir only makes sense for multi-file targets."""
+    """--out-dir only makes sense for multi-file targets (stubs emit one doc)."""
     result = runner.invoke(app, [
-        "compile", "--target", "github", GOVERNANCE, "--out-dir", str(tmp_path),
+        "compile", "--target", "humanlayer", GOVERNANCE, "--out-dir", str(tmp_path),
     ])
     assert result.exit_code == 2
     assert "single document" in result.stdout
+
+
+def test_compile_github_emits_three_applyable_files(tmp_path):
+    """The github target is multi-file: a real CODEOWNERS, a ruleset, setup notes."""
+    import json
+
+    result = runner.invoke(app, [
+        "compile", "--target", "github", GOVERNANCE, "--out-dir", str(tmp_path),
+    ])
+    assert result.exit_code == 0
+    codeowners = tmp_path / "CODEOWNERS"
+    ruleset = tmp_path / "github-ruleset.json"
+    setup = tmp_path / "github-setup.md"
+    assert codeowners.exists() and ruleset.exists() and setup.exists()
+
+    # CODEOWNERS is applyable: an uncommented owner line, not just guidance.
+    owner_lines = [ln for ln in codeowners.read_text().splitlines()
+                   if ln.strip() and not ln.startswith("#")]
+    assert owner_lines and owner_lines[0].startswith("*")
+    assert "@maintainer" in owner_lines[0]
+
+    # The ruleset is valid JSON GitHub would accept, requiring review + code owners.
+    payload = json.loads(ruleset.read_text())
+    assert payload["target"] == "branch"
+    pr_rule = next(r for r in payload["rules"] if r["type"] == "pull_request")
+    assert pr_rule["parameters"]["required_approving_review_count"] >= 1
+    assert pr_rule["parameters"]["require_code_owner_review"] is True
+
+    # setup.md carries the apply command and the honest "never POSTs" framing.
+    setup_text = setup.read_text()
+    assert "gh api --method POST" in setup_text
+    assert "never applies them for you" in setup_text
+
+
+def test_compile_github_ruleset_empty_when_no_gates(tmp_path, monkeypatch):
+    """A charter with no gates yields an empty ruleset rule list, not a bogus one."""
+    import json
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "nogate.yaml").write_text(
+        "project: nogate\n"
+        "roles: [a]\n"
+        "actions:\n"
+        "  x: { responsible: a, accountable: a }\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "out"
+    result = runner.invoke(app, [
+        "compile", "--target", "github", "nogate.yaml", "--out-dir", str(out),
+    ])
+    assert result.exit_code == 0
+    payload = json.loads((out / "github-ruleset.json").read_text())
+    assert payload["rules"] == []
 
 
 def test_compile_claude_all_human_charter_says_so(tmp_path, monkeypatch):
@@ -177,3 +230,61 @@ def test_compile_claude_frontmatter_is_parseable_yaml(tmp_path):
         assert isinstance(fm.get("description"), str) and fm["description"]
         if "model" in fm:
             assert fm["model"] in ("opus", "sonnet", "haiku")
+
+
+def test_compile_github_setup_md_renders_escalate_and_break_glass(tmp_path, monkeypatch):
+    """The per-action notes cover the escalate_to and break_glass gate branches."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "esc.yaml").write_text(
+        "project: esc\n"
+        "roles: [owner, lead, dev]\n"
+        "members:\n"
+        "  - { name: alice, type: human, role: owner }\n"
+        "  - { name: bob, type: human, role: lead }\n"
+        "actions:\n"
+        "  deploy:\n"
+        "    responsible: dev\n"
+        "    accountable: owner\n"
+        "    gate:\n"
+        "      approver: owner\n"
+        "      on_timeout: escalate_to:lead\n"
+        "      break_glass: { who: lead, condition: SEV-1, requires_after_review: true }\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "out"
+    result = runner.invoke(app, ["compile", "--target", "github", "esc.yaml",
+                                 "--out-dir", str(out)])
+    assert result.exit_code == 0
+    setup = (out / "github-setup.md").read_text()
+    assert "route the decision to role 'lead'" in setup
+    assert "Break-glass: 'lead' may override when SEV-1" in setup
+    assert "after-the-fact review required" in setup
+
+
+def test_compile_github_codeowners_no_human_owner_fallback(tmp_path, monkeypatch):
+    """An agent-only-accountable gate yields a commented CODEOWNERS, not a bogus owner."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "bot.yaml").write_text(
+        "project: bot\n"
+        "roles: [bot, dev]\n"
+        "members:\n"
+        "  - { name: botty, type: agent, role: bot }\n"
+        "actions:\n"
+        "  merge:\n"
+        "    responsible: dev\n"
+        "    accountable: bot\n"
+        "    gate:\n"
+        "      approver: bot\n"
+        "      on_timeout: block\n"
+        "      break_glass: { who: dev, condition: emergency, requires_after_review: true }\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "out"
+    result = runner.invoke(app, ["compile", "--target", "github", "bot.yaml",
+                                 "--out-dir", str(out)])
+    assert result.exit_code == 0, result.stdout
+    codeowners = (out / "CODEOWNERS").read_text()
+    # No uncommented owner line (a bot can't be a code owner).
+    assert not [ln for ln in codeowners.splitlines()
+                if ln.strip() and not ln.startswith("#")]
+    assert "no human is accountable" in codeowners

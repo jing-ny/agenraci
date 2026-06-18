@@ -378,16 +378,17 @@ def compile(  # noqa: A001 - this is the user-facing verb
                                help="claude | github | humanlayer | langgraph"),
     out_dir: Path = typer.Option(
         None, "--out-dir", "-o",
-        help="For multi-file targets (claude): write the emitted files under "
-             "this directory instead of printing them.",
+        help="For multi-file targets (claude, github): write the emitted files "
+             "under this directory instead of printing them.",
     ),
 ) -> None:
     """Compile a validated charter into config for a target tool.
 
     `claude` is real — it emits .claude/agents/ definitions (+ a CLAUDE.md
     governance snippet) so Claude Code agents carry the charter's role
-    boundaries. `github` is real — CODEOWNERS + branch-protection guidance from
-    the charter's gates. `humanlayer` and `langgraph` are stubs. Either way
+    boundaries. `github` is real — an applyable CODEOWNERS + a repo-ruleset JSON
+    + setup notes from the charter's gates. `humanlayer` and `langgraph` are
+    stubs. Either way
     AgenRACI emits config a human reviews and applies; it never enforces at
     runtime.
     """

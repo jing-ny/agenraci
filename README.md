@@ -155,7 +155,8 @@ agenraci validate --explain <charter.yaml>       # ...and a plain-language fix u
 agenraci validate --format github <charter>      # ...and ::error annotations for GitHub Actions
 agenraci schema                                  # print the charter JSON Schema (for editor autocomplete)
 agenraci compile --target claude <charter> -o .  # emit .claude/agents/ definitions + a CLAUDE.md snippet
-agenraci compile --target github     <charter>   # emit CODEOWNERS + branch-protection guidance
+agenraci compile --target github     <charter> -o .  # emit CODEOWNERS + a repo-ruleset JSON + setup notes
+agenraci verify  --target github     <charter> --repo OWNER/REPO  # check the live repo enforces the charter
 agenraci compile --target humanlayer <charter>   # placeholder in v0.1
 agenraci compile --target langgraph  <charter>   # placeholder in v0.1
 ```
