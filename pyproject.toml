@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agenraci"
-version = "0.2.1.dev0"
+version = "0.2.1"
 description = "Who's allowed to do what, and who's accountable, on a team of humans and AI agents: a machine-checkable RACI charter + linter."
 readme = "README.md"
 license = "MIT"
