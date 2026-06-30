@@ -333,3 +333,62 @@ def test_init_refuses_to_overwrite_without_force(tmp_path, monkeypatch):
     forced = runner.invoke(app, ["init", "--force"])
     assert forced.exit_code == 0
     assert "project: keep-me" not in target.read_text(encoding="utf-8")
+
+
+def test_rules_command_lists_all_rules():
+    """`agenraci rules` prints every rule id R1-R6 plus its gloss, exit 0."""
+    result = runner.invoke(app, ["rules"])
+    assert result.exit_code == 0
+    for rid in ("R1", "R2", "R3", "R4", "R5", "R6"):
+        assert rid in result.stdout
+    # The plain-language gloss comes through, not just the ids/titles.
+    assert "exactly one accountable role" in result.stdout
+
+
+def test_validate_sarif_uses_oasis_canonical_schema(tmp_path, monkeypatch):
+    """The SARIF document points $schema at the OASIS canonical URL (#55)."""
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["init", "good.yaml"])
+
+    result = runner.invoke(app, ["validate", "--format", "sarif", "good.yaml"])
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["$schema"] == (
+        "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/"
+        "Schemata/sarif-schema-2.1.0.json"
+    )
+
+
+def test_color_enabled_decision(monkeypatch):
+    """Colour is on only for a TTY with NO_COLOR unset and --no-color not passed."""
+    import agenraci.cli as cli
+
+    class _TTY:
+        def isatty(self):
+            return True
+
+    class _Pipe:
+        def isatty(self):
+            return False
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setattr(cli.sys, "stdout", _TTY())
+    assert cli._color_enabled() is True
+    assert cli._color_enabled(no_color=True) is False  # explicit flag wins
+
+    monkeypatch.setenv("NO_COLOR", "")  # NO_COLOR set to ANY value disables
+    assert cli._color_enabled() is False
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setattr(cli.sys, "stdout", _Pipe())
+    assert cli._color_enabled() is False  # non-TTY (piped) stays plain
+
+
+def test_no_color_env_suppresses_escape_codes(tmp_path, monkeypatch):
+    """With NO_COLOR set, validate output carries no ANSI escape sequences."""
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["init", "good.yaml"])
+
+    result = runner.invoke(app, ["validate", "good.yaml"], env={"NO_COLOR": "1"})
+    assert result.exit_code == 0
+    assert "\033[" not in result.stdout

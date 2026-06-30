@@ -150,16 +150,19 @@ backdoor for an agent to act unsupervised.
 
 ```bash
 agenraci init [path]                             # write a commented starter charter (default: charter.yaml)
+agenraci rules                                   # list each checker rule (R1-R6) and what it means
 agenraci validate <charter.yaml> [more.yaml...]  # parse + check, with a per-rule report
 agenraci validate --explain <charter.yaml>       # ...and a plain-language fix under each failure
 agenraci validate --format github <charter>      # ...and ::error annotations for GitHub Actions
 agenraci schema                                  # print the charter JSON Schema (for editor autocomplete)
 agenraci compile --target claude <charter> -o .  # emit .claude/agents/ definitions + a CLAUDE.md snippet
 agenraci compile --target github     <charter>   # emit CODEOWNERS + branch-protection checklist + applyable protection.json
-agenraci verify  --target github     <charter> --repo OWNER/REPO  # check a live repo enforces the charter (--org ORG sweeps a whole org)
+agenraci verify  --target github     <charter> --repo OWNER/REPO  # check a live repo enforces the charter (--org ORG sweeps a whole org, --limit N caps the listing)
 agenraci compile --target humanlayer <charter>   # placeholder in v0.1
 agenraci compile --target langgraph  <charter>   # placeholder in v0.1
 ```
+
+All commands emit ANSI colour only to a terminal; set `NO_COLOR=1` or pass `--no-color` to force plain output (piped/redirected output is plain automatically).
 
 The `claude` target makes the charter *operative* for a [Claude Code](https://claude.com/claude-code)
 team: it generates one `.claude/agents/<member>.md` per agent member — role
