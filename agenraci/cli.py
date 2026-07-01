@@ -1,6 +1,7 @@
 """The ``agenraci`` command-line interface.
 
 * ``agenraci init [path]`` — write a starter charter to edit.
+* ``agenraci rules`` — list each checker rule (R1-R6) and what it checks.
 * ``agenraci validate <charter.yaml>`` — parse + lint, with a per-rule report.
 * ``agenraci schema`` — print the charter JSON Schema.
 * ``agenraci compile --target {claude,github,humanlayer,langgraph}`` — compile a
@@ -14,6 +15,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from importlib.resources import files
 from pathlib import Path
@@ -37,12 +40,42 @@ app = typer.Typer(
     help="AgenRACI — validate and compile a team's operating constitution.",
 )
 
-# Reuse typer's underlying console colours without a hard dependency on rich.
-_GREEN = "\033[32m"
-_RED = "\033[31m"
-_DIM = "\033[2m"
-_BOLD = "\033[1m"
-_RESET = "\033[0m"
+# ANSI colour codes, blanked when colour is disabled (NO_COLOR / non-TTY /
+# --no-color). The constants below are mutable module globals: `_set_color`
+# flips them on or off, and the root callback re-evaluates the decision on every
+# invocation so it honours --no-color and a per-run NO_COLOR.
+_ANSI = {
+    "_GREEN": "\033[32m",
+    "_RED": "\033[31m",
+    "_DIM": "\033[2m",
+    "_BOLD": "\033[1m",
+    "_RESET": "\033[0m",
+}
+_GREEN = _RED = _DIM = _BOLD = _RESET = ""
+
+
+def _color_enabled(*, no_color: bool = False) -> bool:
+    """Colour is on only when not suppressed and stdout is a real terminal.
+
+    Honours the NO_COLOR convention (https://no-color.org/): any value of the
+    NO_COLOR env var disables colour. An explicit --no-color wins too, and
+    piped/redirected output (a non-TTY) is left plain so escape codes don't
+    leak into files or CI logs.
+    """
+    if no_color or "NO_COLOR" in os.environ:
+        return False
+    return sys.stdout.isatty()
+
+
+def _set_color(enabled: bool) -> None:
+    """Point the colour constants at real escapes (on) or empty strings (off)."""
+    g = globals()
+    for name, code in _ANSI.items():
+        g[name] = code if enabled else ""
+
+
+# Resolve once from the environment at import; the root callback refines it per run.
+_set_color(_color_enabled())
 
 
 def _echo(msg: str = "") -> None:
@@ -69,8 +102,14 @@ def _root(
         help="Show the AgenRACI version and exit.",
         is_eager=True, callback=_version_callback,
     ),
+    no_color: bool = typer.Option(
+        False, "--no-color",
+        help="Disable ANSI colour (also honours NO_COLOR and auto-disables "
+             "when output is not a terminal).",
+    ),
 ) -> None:
     """AgenRACI — validate and compile a team's operating constitution."""
+    _set_color(_color_enabled(no_color=no_color))
 
 
 def _template_text() -> str:
@@ -241,7 +280,7 @@ def _sarif_document(results: list[dict]) -> dict:
                         _sarif_result(rule["id"], f"{f['target']}: {f['message']}", uri))
 
     return {
-        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
         "version": "2.1.0",
         "runs": [
             {
@@ -444,10 +483,10 @@ def compile(  # noqa: A001 - this is the user-facing verb
 
 
 def _verify_org(charter, charter_path: Path, org: str, branch: str,
-                output_format: str) -> None:
+                output_format: str, *, limit: int = 1000) -> None:
     """Sweep every repo in an org against the charter and render the result."""
     try:
-        sweep = sweep_org(charter, org, branch=branch)
+        sweep = sweep_org(charter, org, branch=branch, limit=limit)
     except CouldNotCheck as exc:
         _echo(f"{_RED}✗ could not sweep org {org}:{_RESET} {exc}")
         raise typer.Exit(code=2)
@@ -537,6 +576,11 @@ def verify(
     ),
     branch: str = typer.Option("main", "--branch",
                                help="The protected branch the charter governs."),
+    limit: int = typer.Option(
+        None, "--limit",
+        help="With --org: cap how many repos to list (default 1000). Raise it "
+             "to audit an org with >1000 repos, or lower it to sample.",
+    ),
     output_format: str = typer.Option(
         "human", "--format",
         help="Output format: 'human' (default) or 'json'.",
@@ -563,6 +607,9 @@ def verify(
         _echo(f"{_RED}✗ pass exactly one of --settings (offline), --repo (one "
               f"live repo), or --org (sweep an org){_RESET}.")
         raise typer.Exit(code=2)
+    if limit is not None and org is None:
+        _echo(f"{_RED}✗ --limit only applies to --org (sweep mode){_RESET}.")
+        raise typer.Exit(code=2)
 
     try:
         charter = load_charter(charter_path)
@@ -571,7 +618,8 @@ def verify(
         raise typer.Exit(code=2)  # could-not-check, distinct from drift
 
     if org is not None:
-        _verify_org(charter, charter_path, org, branch, output_format)
+        _verify_org(charter, charter_path, org, branch, output_format,
+                    limit=1000 if limit is None else limit)
         return
 
     if repo is not None:
@@ -654,6 +702,24 @@ def schema() -> None:
     from .schema import Charter
 
     _echo(json.dumps(Charter.model_json_schema(), indent=2))
+
+
+@app.command()
+def rules() -> None:
+    """List each checker rule (R1-R6) and what it checks, in order.
+
+    Makes the checker self-documenting: when someone hits a rule code in a
+    `validate` report and wants its plain-language meaning, `agenraci rules`
+    prints every rule's id, short title, and one-line gloss without needing a
+    charter to run against. Reads the same RULES/EXPLANATIONS the checker uses,
+    so it never drifts from what the rules actually do.
+    """
+    for rule_id, title, _fn in RULES:
+        _echo(f"{_BOLD}{rule_id}{_RESET}  {title}")
+        gloss = EXPLANATIONS.get(rule_id)
+        if gloss:
+            _echo(f"    {_DIM}{gloss}{_RESET}")
+        _echo()
 
 
 def main() -> None:  # console-script entry point

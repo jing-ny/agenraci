@@ -257,6 +257,50 @@ def test_cli_verify_both_modes_exit_two(tmp_path):
     assert "exactly one" in result.stdout
 
 
+def test_cli_verify_limit_without_org_exit_two(tmp_path):
+    """--limit only makes sense with --org; using it elsewhere is a usage error."""
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    settings = _settings(tmp_path, code_owners=["alice"], required_reviews=1)
+    result = runner.invoke(app, ["verify", str(charter), "--settings", str(settings),
+                                 "--limit", "5"])
+    assert result.exit_code == 2
+    assert "--limit only applies to --org" in result.stdout
+
+
+def test_cli_verify_org_threads_limit_into_sweep(tmp_path, monkeypatch):
+    """The CLI passes --limit straight through to sweep_org (no network needed)."""
+    from agenraci.adapters.github import OrgSweepReport
+
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    captured = {}
+
+    def fake_sweep_org(charter_arg, org, *, branch="main", limit=1000):
+        captured.update(org=org, branch=branch, limit=limit)
+        return OrgSweepReport(org=org, branch=branch, results=[], ok=True)
+
+    monkeypatch.setattr("agenraci.cli.sweep_org", fake_sweep_org)
+    result = runner.invoke(app, ["verify", str(charter), "--org", "acme", "--limit", "42"])
+    assert result.exit_code == 0
+    assert captured == {"org": "acme", "branch": "main", "limit": 42}
+
+
+def test_cli_verify_org_defaults_limit_to_1000(tmp_path, monkeypatch):
+    """Omitting --limit sweeps with the documented default cap of 1000."""
+    from agenraci.adapters.github import OrgSweepReport
+
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    captured = {}
+
+    def fake_sweep_org(charter_arg, org, *, branch="main", limit=1000):
+        captured["limit"] = limit
+        return OrgSweepReport(org=org, branch=branch, results=[], ok=True)
+
+    monkeypatch.setattr("agenraci.cli.sweep_org", fake_sweep_org)
+    result = runner.invoke(app, ["verify", str(charter), "--org", "acme"])
+    assert result.exit_code == 0
+    assert captured["limit"] == 1000
+
+
 def test_cli_verify_human_format_clean_and_drift(tmp_path):
     """The default human output renders OK / DRIFT verdicts with correct exits."""
     charter = _charter(tmp_path, _HUMAN_GATED)
@@ -554,7 +598,7 @@ def test_cli_verify_org_json(tmp_path, monkeypatch):
             project="t", branch="main", ok=True, findings=[], unenforceable=[])),
         RepoResult("o/b", "could-not-check", error="HTTP 403: Forbidden"),
     ])
-    monkeypatch.setattr("agenraci.cli.sweep_org", lambda c, o, branch="main": fake)
+    monkeypatch.setattr("agenraci.cli.sweep_org", lambda c, o, branch="main", limit=1000: fake)
     result = runner.invoke(app, ["verify", str(charter), "--org", "o",
                                  "--format", "json"])
     assert result.exit_code == 1  # not ok
@@ -586,7 +630,7 @@ def test_cli_verify_org_human_format(tmp_path, monkeypatch):
             findings=[VerifyFinding("main", "drift", "no review required")],
             unenforceable=[])),
     ])
-    monkeypatch.setattr("agenraci.cli.sweep_org", lambda c, o, branch="main": fake)
+    monkeypatch.setattr("agenraci.cli.sweep_org", lambda c, o, branch="main", limit=1000: fake)
     result = runner.invoke(app, ["verify", str(charter), "--org", "o"])
     assert result.exit_code == 1
     assert "o/a" in result.stdout and "o/b" in result.stdout
@@ -613,7 +657,7 @@ def test_cli_verify_org_empty_says_nothing_to_verify(tmp_path, monkeypatch):
     charter = _charter(tmp_path, _HUMAN_GATED)
     monkeypatch.setattr(
         "agenraci.cli.sweep_org",
-        lambda c, o, branch="main": OrgSweepReport(
+        lambda c, o, branch="main", limit=1000: OrgSweepReport(
             org="empty", branch="main", ok=True, results=[]),
     )
     result = runner.invoke(app, ["verify", str(charter), "--org", "empty"])
