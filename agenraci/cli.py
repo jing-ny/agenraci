@@ -482,6 +482,62 @@ def compile(  # noqa: A001 - this is the user-facing verb
         _echo(f"{_GREEN}✓{_RESET} wrote {dest}")
 
 
+def _verify_sarif_document(charter_path: Path, entries) -> dict:
+    """Build a single SARIF 2.1.0 run from verify results (#72).
+
+    ``entries`` is a list of ``(repo_or_None, VerifyReport)`` pairs — one pair for a
+    single-repo/offline verify, many for an ``--org`` sweep. Mirrors the shapes
+    ``validate --format sarif`` already emits (see ``_sarif_document``): findings are
+    file-level, pinned to the charter file, since verify references a repo/branch/
+    action rather than a source line. Drift ⇒ ``error`` (it flips the exit code);
+    unenforceable ⇒ ``warning`` (surfaced, not a failure).
+    """
+    rule_descriptors = [
+        {"id": "drift", "name": "charter drift",
+         "shortDescription": {"text": "The live repo no longer enforces what the charter declares."}},
+        {"id": "unenforceable", "name": "unenforceable action",
+         "shortDescription": {"text": "The charter declares a gate GitHub branch protection cannot express "
+                                      "(e.g. an agent-only approver); surfaced, not a failure."}},
+    ]
+    uri = str(charter_path)
+    results = []
+    for repo, report in entries:
+        if report is None:
+            continue
+        prefix = f"{repo}: " if repo else ""
+        for f in report.findings:
+            results.append({
+                "ruleId": "drift",
+                "level": "error",
+                "message": {"text": f"{prefix}{f.target}: {f.message}"},
+                "locations": [{"physicalLocation": {"artifactLocation": {"uri": uri}}}],
+            })
+        for f in report.unenforceable:
+            results.append({
+                "ruleId": "unenforceable",
+                "level": "warning",
+                "message": {"text": f"{prefix}{f.target}: {f.message}"},
+                "locations": [{"physicalLocation": {"artifactLocation": {"uri": uri}}}],
+            })
+    return {
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "AgenRACI",
+                        "informationUri": "https://github.com/jing-ny/agenraci",
+                        "version": _agenraci_version(),
+                        "rules": rule_descriptors,
+                    }
+                },
+                "results": results,
+            }
+        ],
+    }
+
+
 def _verify_org(charter, charter_path: Path, org: str, branch: str,
                 output_format: str, *, limit: int = 1000) -> None:
     """Sweep every repo in an org against the charter and render the result."""
@@ -493,6 +549,17 @@ def _verify_org(charter, charter_path: Path, org: str, branch: str,
 
     drifted = [r for r in sweep.results if r.status == "drift"]
     unreadable = [r for r in sweep.results if r.status == "could-not-check"]
+
+    # SARIF aggregates every swept repo's findings into ONE document (#72); each
+    # result's message names the repo. could-not-check repos carry no report and
+    # are intentionally absent (they already surface via human/json modes).
+    if output_format == "sarif":
+        doc = _verify_sarif_document(
+            charter_path, [(r.repo, r.report) for r in sweep.results])
+        _echo(json.dumps(doc, indent=2))
+        if not sweep.ok:
+            raise typer.Exit(code=1)
+        return
 
     if output_format == "json":
         _echo(json.dumps({
@@ -583,7 +650,8 @@ def verify(
     ),
     output_format: str = typer.Option(
         "human", "--format",
-        help="Output format: 'human' (default) or 'json'.",
+        help="Output format: 'human' (default), 'json', or 'sarif' (a single "
+             "SARIF 2.1.0 document — upload drift to GitHub code-scanning).",
     ),
 ) -> None:
     """Check that a live repo actually enforces what the charter declares.
@@ -599,9 +667,9 @@ def verify(
         _echo(f"{_RED}unknown --target {target!r}.{_RESET} "
               f"verify currently supports: github")
         raise typer.Exit(code=2)
-    if output_format not in ("human", "json"):
+    if output_format not in ("human", "json", "sarif"):
         _echo(f"{_RED}unknown --format {output_format!r}.{_RESET} "
-              f"choose one of: human, json")
+              f"choose one of: human, json, sarif")
         raise typer.Exit(code=2)
     if sum(x is not None for x in (settings, repo, org)) != 1:
         _echo(f"{_RED}✗ pass exactly one of --settings (offline), --repo (one "
@@ -646,6 +714,12 @@ def verify(
         protection = parse_protection(data, branch=branch)
 
     report = verify_github(charter, protection, branch=branch)
+
+    if output_format == "sarif":
+        _echo(json.dumps(_verify_sarif_document(charter_path, [(None, report)]), indent=2))
+        if not report.ok:
+            raise typer.Exit(code=1)
+        return
 
     if output_format == "json":
         _echo(json.dumps({

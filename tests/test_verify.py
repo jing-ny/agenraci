@@ -663,3 +663,79 @@ def test_cli_verify_org_empty_says_nothing_to_verify(tmp_path, monkeypatch):
     result = runner.invoke(app, ["verify", str(charter), "--org", "empty"])
     assert result.exit_code == 0
     assert "0 repos found" in result.stdout
+
+
+def test_cli_verify_sarif_drift(tmp_path):
+    """`verify --format sarif` emits one SARIF doc: drift=error results, exit 1 (#72)."""
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    settings = _settings(tmp_path, branch="main", required_reviews=0,
+                         require_code_owner_review=False, code_owners=[])
+    result = runner.invoke(app, ["verify", str(charter), "--settings", str(settings),
+                                 "--format", "sarif"])
+    assert result.exit_code == 1
+    doc = json.loads(result.stdout)
+    assert doc["version"] == "2.1.0"
+    assert doc["$schema"].startswith("https://raw.githubusercontent.com/oasis-tcs/sarif-spec/")
+    run = doc["runs"][0]
+    assert run["tool"]["driver"]["name"] == "AgenRACI"
+    assert {r["id"] for r in run["tool"]["driver"]["rules"]} == {"drift", "unenforceable"}
+    assert len(run["results"]) >= 1
+    assert all(r["ruleId"] == "drift" and r["level"] == "error" for r in run["results"])
+    uri = run["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+    assert uri == str(charter)
+
+
+def test_cli_verify_sarif_clean_and_unenforceable(tmp_path):
+    """Clean charter → zero results, exit 0; agent-only gate → 'unenforceable' warning, exit 0."""
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    ok_settings = _settings(tmp_path, branch="main", required_reviews=1,
+                            require_code_owner_review=True, code_owners=["alice"])
+    clean = runner.invoke(app, ["verify", str(charter), "--settings", str(ok_settings),
+                                "--format", "sarif"])
+    assert clean.exit_code == 0
+    assert json.loads(clean.stdout)["runs"][0]["results"] == []
+
+    agent_charter = _charter(tmp_path, _AGENT_GATED)
+    unenf = runner.invoke(app, ["verify", str(agent_charter), "--settings", str(ok_settings),
+                                "--format", "sarif"])
+    assert unenf.exit_code == 0  # unenforceable does not flip the exit code
+    res = json.loads(unenf.stdout)["runs"][0]["results"]
+    assert len(res) == 1
+    assert res[0]["ruleId"] == "unenforceable"
+    assert res[0]["level"] == "warning"
+
+
+def test_cli_verify_org_sarif_aggregates_and_names_repos(tmp_path, monkeypatch):
+    """--org --format sarif folds every repo into ONE doc; messages name the repo (#72)."""
+    from agenraci.adapters.github import OrgSweepReport, RepoResult, VerifyFinding, VerifyReport
+
+    drift_rep = VerifyReport(project="t", branch="main", ok=False,
+                             findings=[VerifyFinding("merge", "drift", "no approving review")],
+                             unenforceable=[])
+    clean_rep = VerifyReport(project="t", branch="main", ok=True, findings=[],
+                             unenforceable=[VerifyFinding("merge", "unenforceable", "agent-only gate")])
+    fake = OrgSweepReport(org="o", branch="main", ok=False, results=[
+        RepoResult("o/a", "drift", report=drift_rep),
+        RepoResult("o/b", "clean", report=clean_rep),
+        RepoResult("o/c", "could-not-check", error="403"),
+    ])
+    monkeypatch.setattr("agenraci.cli.sweep_org", lambda c, o, branch="main", limit=1000: fake)
+
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    result = runner.invoke(app, ["verify", str(charter), "--org", "o", "--format", "sarif"])
+    assert result.exit_code == 1  # sweep has drift
+    res = json.loads(result.stdout)["runs"][0]["results"]
+    assert len(res) == 2  # 1 drift + 1 unenforceable; could-not-check carries no report
+    texts = [r["message"]["text"] for r in res]
+    assert any(t.startswith("o/a: ") for t in texts)  # repo named in the message
+    assert any(t.startswith("o/b: ") for t in texts)
+    assert {r["ruleId"] for r in res} == {"drift", "unenforceable"}
+
+
+def test_cli_verify_sarif_bad_format_still_rejected(tmp_path):
+    charter = _charter(tmp_path, _HUMAN_GATED)
+    settings = _settings(tmp_path, code_owners=["alice"], required_reviews=1)
+    result = runner.invoke(app, ["verify", str(charter), "--settings", str(settings),
+                                 "--format", "xml"])
+    assert result.exit_code == 2
+    assert "sarif" in result.stdout  # the error message lists the new option
