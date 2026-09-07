@@ -4,6 +4,17 @@ Thanks for your interest! AgenRACI is small and opinionated by design. The faste
 way to be useful is to keep the role library and capability list **minimal** —
 flag anything you think is missing rather than inventing extra roles.
 
+## Current contribution priorities
+
+Start with the [active plan and issues](PLAN.md#contributor-work-items). We are focusing
+on trustworthy GitHub approval verification. Each issue gives scope, dependencies,
+acceptance criteria, and code entry points. The auto-merge correction is a smaller
+independent task; approval semantics and bypass analysis require deeper GitHub knowledge.
+Comment with your intended approach before substantial work to avoid duplication.
+
+Regression fixtures and reviews are welcome. Unknown or unsupported guarantees must
+remain visible. Broad feature work and runtime connectors are deferred this round.
+
 ## Development setup
 
 ```bash
@@ -21,8 +32,8 @@ canonical known-good fixture and is checked by the test suite.
 - `agenraci/schema.py` — pydantic v2 models (`Charter`, `Role`, `Member`,
   `CapabilitySet`, `Action`, `Gate`, `BreakGlass`, `SuggestionRoute`).
 - `agenraci/linter.py` — one pure function per rule, registered in `RULES`.
-- `agenraci/cli.py` — `agenraci validate` / `agenraci compile`.
-- `agenraci/adapters/` — stubs in v0.1.
+- `agenraci/cli.py` — `validate`, `compile`, and `verify` commands and reporting.
+- `agenraci/adapters/` — working GitHub and Claude Code adapters; HumanLayer/LangGraph placeholders.
 - `tests/test_linter.py` — for each active rule, one passing case (Sprout) and
   one deliberately broken charter that trips exactly that rule.
 

@@ -1,6 +1,6 @@
 # Launch copy
 
-Ready-to-post collateral for the 0.1.0 launch. Drafts, not final — review before posting.
+Historical collateral for the 0.1.0 launch. Drafts, not final — review before posting.
 
 - [`show-hn.md`](show-hn.md) — Show HN title, URL, and body
 - [`social.md`](social.md) — X/Twitter thread, LinkedIn post, Reddit title + body
@@ -10,5 +10,6 @@ Ready-to-post collateral for the 0.1.0 launch. Drafts, not final — review befo
 charter; it does not intercept actions or enforce approvals at runtime. Runtime
 connectors (HumanLayer/LangGraph) are roadmap, not current claims.
 
-The launch-day runbook (the ordered human steps) lives at the top of
-[`../../PLAN.md`](../../PLAN.md).
+The original runbook is preserved in [the launch archive](../planning/launch-plan-v0.1.md).
+See [the active plan](../../PLAN.md) for current priorities. Recheck historical claims
+before reusing launch copy.
