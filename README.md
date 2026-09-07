@@ -11,6 +11,14 @@
 > AgenRACI is one plain-language file that answers that up front, for every kind
 > of action: who may do it, who signs off, and who owns the outcome.
 
+**Current development focus:** trustworthy GitHub approval verification, followed by
+three maintainer trials. See the [next-round plan](PLAN.md) and
+[contributor entry points](CONTRIBUTING.md#current-contribution-priorities).
+
+**Current verification limitations:** the checker compares selected protection settings
+and owner names mentioned anywhere in CODEOWNERS. Passing does not establish path-specific
+approval, the designated gate approver, or absence of bypasses. Fixes are planned, not shipped.
+
 For decades, teams have used **RACI** — a simple chart of who is *Responsible,
 Accountable, Consulted, and Informed* for each kind of work. RACI quietly assumes
 a person starts every task. AI agents break that assumption: they can act on
@@ -72,20 +80,13 @@ Full walkthrough + a recordable GIF script: [`docs/demo/`](docs/demo/).
 
 ## What AgenRACI is (and isn't) yet
 
-**Today, AgenRACI helps you write the charter and checks that it holds together.**
-You get:
+**Today, AgenRACI validates charters, generates configuration scaffolds, and checks
+selected GitHub settings for drift**, for one repository or an organization. The
+GitHub comparison has the coverage limitations noted above.
 
-- a clear format for the charter file,
-- an automatic checker that catches gaps, conflicts, and approval steps that could
-  deadlock,
-- a worked example and a blank template to start from.
-
-**AgenRACI does not run your team — yet.** It doesn't (today) intercept actions or
-enforce approvals at the moment they happen. Tools like LangGraph, CrewAI, and
-HumanLayer already handle *running* agents and pausing them for sign-off. AgenRACI
-sits one level up and answers what they don't: *on this specific team, who is
-allowed to do what, and who breaks a tie.* Turning the charter into live, enforced
-approvals is the next milestone on the roadmap — not a claim about today.
+It does not intercept actions or enforce approvals at runtime. Generated agent
+instructions are guidance; GitHub configuration scaffolds require human review.
+Runtime connectors are deferred until real usage establishes a need.
 
 ## The gap we fill
 
@@ -231,10 +232,11 @@ matches what the charter declares:
 
 This Action runs `agenraci verify --target github` against your repo's live
 branch protection and CODEOWNERS. It exits 1 if the repo drifts from the
-charter (for example, a required approver was removed from CODEOWNERS), and
-exits 0 if the branch enforces at least what the charter declares. The
-charter is a **floor**: a repo whose protection is *stricter* than the
-minimum the charter requires still passes. A gated action whose accountable
+charter (for example, an expected accountable owner was removed from CODEOWNERS), and
+exits 0 when its current comparisons find no drift; this does not prove every
+charter requirement is enforced. The current comparison accepts additional owners,
+but additional eligible owners can weaken a designated-approver requirement. See the
+limitations above. A gated action whose accountable
 role has no human member is reported as `unenforceable` — GitHub code owners
 must be human — neither pass nor fail.
 
@@ -316,26 +318,16 @@ agenraci/
 
 ## Roadmap
 
-- **v0.1 — write it and check it.** The charter format, the checker (R1–R6) with
-  `validate --explain` plain-language fixes, worked examples (the Autopilot
-  flagship + others), a template, a GitHub Action, and a pre-commit hook.
-- **v0.2 — GitHub enforcement loop.** ← you are here. `agenraci verify --target
-  github` checks a live repo's branch protection and CODEOWNERS against the charter
-  and fails CI on drift — offline `--settings` mode (#60) and live `--repo` mode
-  via `gh api` (#61). The companion `verify` GitHub Action (#62) drops into any
-  workflow in two lines (dogfooded here; live branch-protection reads need admin
-  scope, so the dogfood job uses `continue-on-error`). `agenraci compile --target
-  github` (#63) now also emits a directly-applyable classic branch-protection PUT
-  JSON, a ready-to-run `gh api` command, and a verify round-trip step — closing the
-  compile → apply → verify loop. A step-by-step cookbook (#65) walks the whole loop
-  end-to-end. Still no runtime interception — verify, don't intercept.
-- **v0.3 — first runtime connector.** A working HumanLayer connector that turns
-  charter gates into real approval pauses, plus a richer authority graph beyond
-  gate `escalate_to` edges (standing veto relations).
-- **v0.4 — LangGraph connector** + a small web view that renders the chart so
-  non-engineers can read it.
-- **v0.5 — author ergonomics.** Inline checker findings in an editor, and a
-  reference mode that explains any rule on demand.
+- **Shipped:** charter validation (R1–R6), Claude Code and GitHub configuration
+  generation, live/offline GitHub verification, and org-wide scanning in v0.2.1.
+- **Next round:** define the verification contract; correct approval/scope, bypass
+  evidence, and auto-merge handling; create a reproducible demonstration; run three
+  maintainer trials. Implementation is planned, not shipped.
+- **Deferred:** runtime connectors, GitLab, dashboards, and broader governance features.
+  Further investment depends on useful findings and retained usage.
+
+The [active plan](PLAN.md) contains issues, dependencies, acceptance criteria, and
+investment decision rules. There are no scheduled v0.3–v0.5 commitments.
 
 ## FAQ
 

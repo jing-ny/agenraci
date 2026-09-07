@@ -4,11 +4,19 @@
 > repo actually enforce what the charter declares? Branch protection rules drift:
 > someone removes a required reviewer from CODEOWNERS, or disables "require pull
 > request before merging" while firefighting an incident, and the charter's
-> accountability map silently stops being real. This guide closes that gap.
+> accountability map silently stops being real. This guide demonstrates the current limited comparison.
 >
 > Honest scope, up front: AgenRACI **prints** the GitHub config your charter implies
 > and **checks** whether a live repo matches it. It never POSTs or PUTs anything to
 > GitHub and never intercepts actions at runtime. "Verify, don't intercept."
+
+**Known limitations:** the current verifier reduces CODEOWNERS to owner names without
+checking path precedence or the designated approver. It does not model bypass permissions.
+`CLEAN` means these limited comparisons found no drift, not that all charter gates are
+enforced. It also treats enabled auto-merge as drift for blocking gates, although GitHub
+auto-merge waits for required reviews and checks. Output below reflects current behavior,
+including that known limitation. See the [correction plan](../../PLAN.md); fixes have
+not yet shipped.
 
 The full loop has three steps: compile (charter → GitHub config), apply (human runs
 the `gh api` commands), verify (AgenRACI reads the live repo and reports drift).
@@ -166,7 +174,11 @@ succeeds, GitHub's branch protection for `main` now requires a pull request with
 code-owner review before merging, and `enforce_admins` is true so the rule applies
 even to repo admins.
 
-**3c. Disable auto-merge at the repo level.** Branch protection alone does not
+**3c. Current checker workaround: auto-merge.**
+This is a limitation of the current checker, not a GitHub requirement for blocking
+approval. Do not disable useful auto-merge solely to claim stronger protection.
+The following reproduces the current compiler guidance pending [#81](https://github.com/jing-ny/agenraci/issues/81).
+ Branch protection alone does not
 disable the repo-level auto-merge setting. Run the second command compile printed:
 
 ```bash
@@ -304,7 +316,7 @@ misread as a charter violation.
 
 | Exit code | Meaning | Action |
 |-----------|---------|--------|
-| `0` | Clean — the live branch enforces at least what the charter declares | Nothing to do; check again after any branch-protection change |
+| `0` | No drift found by the current limited comparisons | Review coverage limitations; this is not proof of all charter guarantees |
 | `1` | Drift — one or more charter requirements are not reflected in the live branch | Re-apply the compiled protection; check CODEOWNERS |
 | `2` | Could-not-check — `gh` missing, not authenticated, or insufficient permission | Supply `GH_TOKEN` with admin scope, or use `--settings` for offline check |
 
