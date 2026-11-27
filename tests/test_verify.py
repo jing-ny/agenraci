@@ -314,6 +314,17 @@ def test_cli_verify_org_defaults_limit_to_1000(tmp_path, monkeypatch):
     assert captured["limit"] == 1000
 
 
+def test_cli_verify_auto_merge_on_exits_clean(tmp_path):
+    """#81 end to end: auto-merge on with a sufficient branch exits 0."""
+    charter = _charter(tmp_path, _HUMAN_GATED)  # on_timeout=block
+    settings = _settings(tmp_path, branch="main", required_reviews=1,
+                         require_code_owner_review=True, code_owners=["alice"],
+                         allow_auto_merge=True)
+    result = runner.invoke(app, ["verify", str(charter), "--settings", str(settings)])
+    assert result.exit_code == 0, result.stdout
+    assert "auto-merge" not in result.stdout
+
+
 def test_cli_verify_human_format_clean_and_drift(tmp_path):
     """The default human output renders OK / DRIFT verdicts with correct exits."""
     charter = _charter(tmp_path, _HUMAN_GATED)

@@ -74,10 +74,11 @@ def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
 
         if gate.on_timeout == "block":
             out.append("#   • On approver timeout, the change waits; it never merges "
-                       "unreviewed (charter on_timeout=block). The required review "
-                       "above enforces this; auto-merge does not bypass it.")
+                       "unreviewed (charter on_timeout=block). Branch protection's "
+                       "required review is what makes it wait; auto-merge does not "
+                       "bypass it.")
         elif gate.on_timeout == "proceed_if_low_risk":
-            out.append("#   • Auto-merge tolerable for this action only "
+            out.append("#   • On approver timeout, may proceed without approval "
                        "(charter on_timeout=proceed_if_low_risk; it is marked low-risk).")
         elif gate.on_timeout.startswith("escalate_to:"):
             esc = gate.on_timeout.split(":", 1)[1].strip()

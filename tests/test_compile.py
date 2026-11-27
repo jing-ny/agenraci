@@ -111,6 +111,7 @@ def test_compile_github_no_human_accountable_omits_code_owner_review():
     assert rpr["require_code_owner_reviews"] is False
     # on_timeout=block no longer emits a repo-level auto-merge-off hint (#81).
     assert "allow_auto_merge" not in result.stdout
+    assert "--method PATCH" not in result.stdout
 
 
 def test_compile_github_no_gates_emits_no_protection_json(tmp_path, monkeypatch):

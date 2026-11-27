@@ -17,9 +17,10 @@ enforced. Output below reflects current behavior, including those known limitati
 the [correction plan](../../PLAN.md); those fixes have not yet shipped.
 
 Auto-merge is not a bypass: GitHub auto-merge waits for required reviews and checks, so
-verify no longer reports enabled auto-merge as drift, and compile no longer tells you to
-turn it off ([#81](https://github.com/jing-ny/agenraci/issues/81)). Auto-merge being off
-is not evidence of enforcement either; the required review is.
+verify does not report enabled auto-merge as drift, and compile does not tell you to turn
+it off ([#81](https://github.com/jing-ny/agenraci/issues/81)). Auto-merge being off is not
+evidence of enforcement either; the required review is what enforces the gate, within the
+limitations above.
 
 The full loop has three steps: compile (charter → GitHub config), apply (human runs
 the `gh api` commands), verify (AgenRACI reads the live repo and reports drift).
@@ -100,7 +101,7 @@ sprout example:
 # In Settings → Branches → Add branch protection rule, for each action:
 # A5_merge_to_main
 #   • Require a pull request before merging, approved by role 'reviewer' (no human members — assign one).
-#   • On approver timeout, the change waits; it never merges unreviewed (charter on_timeout=block). The required review above enforces this; auto-merge does not bypass it.
+#   • On approver timeout, the change waits; it never merges unreviewed (charter on_timeout=block). Branch protection's required review is what makes it wait; auto-merge does not bypass it.
 #   • Break-glass: 'engineer' may override when sev1_incident (after-the-fact review required).
 # ...(A7_incident_fix, A8_interpret_analytics, A9_communicate_with_users, A10_spend_money follow, each with its own approver/timeout/break-glass lines)...
 

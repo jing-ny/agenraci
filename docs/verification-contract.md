@@ -229,7 +229,7 @@ says so.
 | 6 | Accountable Carol, approver Alice, `* @carol` | pass | `drift`: Carol is not an eligible approver |
 | 7 | `* @alice @org/release`, team members unreadable | pass (team ignored) | `incomplete` |
 | 8 | Accountable and approver roles have only agent members | `unenforceable`, exit 0 | `incomplete` (reason `no-human-approver`) |
-| 9 | Auto-merge on, gate `on_timeout: block` | drift (#81) | `verified` |
+| 9 | Auto-merge on, gate `on_timeout: block` | drift before #81, pass after | `verified` |
 | 10 | Required reviews 0, auto-merge on | drift | `drift` |
 | 11 | Ruleset bypass actor: repository admin role, admins are not break-glass holders | pass | `drift` |
 | 12 | Ruleset bypass actor is the break-glass holder | pass | `verified`, bypass listed with the D4 caveat |
