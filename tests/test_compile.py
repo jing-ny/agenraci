@@ -64,7 +64,7 @@ def test_compile_github_emits_applyable_protection_json():
     body = _protection_json_from(out)
     rpr = body["required_pull_request_reviews"]
     assert rpr["required_approving_review_count"] >= 1
-    # governance charter: maintainer (human) is accountable for gated actions.
+    # governance charter: the human maintainer approves A7_publish_release.
     assert rpr["require_code_owner_reviews"] is True
     # Real PUT shape: these keys must be present (nullable) for GitHub to accept it.
     assert set(body) >= {
@@ -72,33 +72,25 @@ def test_compile_github_emits_applyable_protection_json():
         "required_pull_request_reviews", "restrictions",
     }
 
+    # Stale approvals must be dismissed, or verify reports drift (#79).
+    assert rpr["dismiss_stale_reviews"] is True
+
     # Fact-level round trip: the emitted body, read by the live verifier's own
-    # normaliser, must satisfy verify_github against the same charter.
+    # normaliser, raises none of the branch-level drift this block is
+    # responsible for (CODEOWNERS and bypass evidence are judged separately).
     charter = load_charter(GOVERNANCE)
     protection = gh.protection_from_github(branch="main", protection=body)
-    # The CODEOWNERS owner-set drift is independent of this JSON; check the two
-    # facts this block is responsible for are clean.
-    report = gh.verify_github(charter, gh.GitHubProtection(
-        branch="main",
-        required_reviews=protection.required_reviews,
-        require_code_owner_review=protection.require_code_owner_review,
-        code_owners=sorted({
-            h for a in charter.actions.values() if a.gate is not None
-            for r in a.accountable
-            for m in charter.members
-            if m.role == r and m.type == "human" and (h := m.name)
-        }),
-        # The round trip no longer needs auto-merge turned off (#81).
-        allow_auto_merge=True,
-    ))
-    assert report.ok, [f.message for f in report.findings]
+    report = gh.verify_github(charter, protection)
+    codes = {r.code for a in report.actions for r in a.reasons}
+    assert not codes & {"no-required-review", "no-code-owner-review",
+                        "no-stale-dismissal"}
 
 
 def test_compile_github_no_human_accountable_omits_code_owner_review():
     """Agent-only gated action: reviews required, but code-owner review stays OFF.
 
-    The relay example is all-agent (no human members), so no human is accountable
-    for its gated actions. Mirrors verify_github treating code-owner enforcement
+    The relay example is all-agent (no human members), so no human approves its
+    gated actions. Mirrors verify_github treating code-owner enforcement
     as impossible without a human owner — we must not emit JSON that pretends
     otherwise.
     """

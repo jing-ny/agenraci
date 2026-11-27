@@ -482,6 +482,51 @@ def compile(  # noqa: A001 - this is the user-facing verb
         _echo(f"{_GREEN}✓{_RESET} wrote {dest}")
 
 
+def _verify_exit_code(status: str, allow_incomplete: bool) -> int:
+    """Exit codes from docs/verification-contract.md §6 (D2)."""
+    if status == "drift":
+        return 1
+    if status in ("incomplete", "could-not-check"):
+        return 0 if allow_incomplete else 2
+    return 0  # verified, nothing-to-verify
+
+
+def _finish(status: str, allow_incomplete: bool) -> None:
+    code = _verify_exit_code(status, allow_incomplete)
+    if code:
+        raise typer.Exit(code=code)
+
+
+def _action_json(a) -> dict:
+    return {
+        "action": a.action,
+        "status": a.status,
+        "paths": a.paths,
+        "eligible_approvers": a.eligible_approvers,
+        "reasons": [{"kind": r.kind, "code": r.code, "message": r.message}
+                    for r in a.reasons],
+    }
+
+
+def _report_json(report) -> dict:
+    """The per-report fields shared by single-repo and org JSON."""
+    return {
+        "status": report.status,
+        "evidence": report.evidence,
+        "ok": report.ok,  # deprecated: no drift
+        "note": report.note,
+        "actions": [_action_json(a) for a in report.actions],
+        "findings": [
+            {"target": f.target, "kind": f.kind, "message": f.message}
+            for f in report.findings
+        ],
+        "unenforceable": [  # deprecated: alias of no-human-approver reasons
+            {"target": f.target, "kind": f.kind, "message": f.message}
+            for f in report.unenforceable
+        ],
+    }
+
+
 def _verify_sarif_document(charter_path: Path, entries) -> dict:
     """Build a single SARIF 2.1.0 run from verify results (#72).
 
@@ -489,15 +534,18 @@ def _verify_sarif_document(charter_path: Path, entries) -> dict:
     single-repo/offline verify, many for an ``--org`` sweep. Mirrors the shapes
     ``validate --format sarif`` already emits (see ``_sarif_document``): findings are
     file-level, pinned to the charter file, since verify references a repo/branch/
-    action rather than a source line. Drift ⇒ ``error`` (it flips the exit code);
-    unenforceable ⇒ ``warning`` (surfaced, not a failure).
+    action rather than a source line. Drift ⇒ ``error``; incomplete ⇒ ``warning``
+    (``unenforceable`` for an approver role with no human, ``incomplete`` for
+    everything else that could not be established).
     """
     rule_descriptors = [
         {"id": "drift", "name": "charter drift",
-         "shortDescription": {"text": "The live repo no longer enforces what the charter declares."}},
+         "shortDescription": {"text": "The repo does not enforce what the charter declares."}},
+        {"id": "incomplete", "name": "incomplete verification",
+         "shortDescription": {"text": "Verify could not establish the guarantee; never a pass."}},
         {"id": "unenforceable", "name": "unenforceable action",
          "shortDescription": {"text": "The charter declares a gate GitHub branch protection cannot express "
-                                      "(e.g. an agent-only approver); surfaced, not a failure."}},
+                                      "(an approver role with no human member)."}},
     ]
     uri = str(charter_path)
     results = []
@@ -505,20 +553,20 @@ def _verify_sarif_document(charter_path: Path, entries) -> dict:
         if report is None:
             continue
         prefix = f"{repo}: " if repo else ""
-        for f in report.findings:
-            results.append({
-                "ruleId": "drift",
-                "level": "error",
-                "message": {"text": f"{prefix}{f.target}: {f.message}"},
-                "locations": [{"physicalLocation": {"artifactLocation": {"uri": uri}}}],
-            })
-        for f in report.unenforceable:
-            results.append({
-                "ruleId": "unenforceable",
-                "level": "warning",
-                "message": {"text": f"{prefix}{f.target}: {f.message}"},
-                "locations": [{"physicalLocation": {"artifactLocation": {"uri": uri}}}],
-            })
+        for a in report.actions:
+            for r in a.reasons:
+                if r.kind == "drift":
+                    rule_id, level = "drift", "error"
+                elif r.code == "no-human-approver":
+                    rule_id, level = "unenforceable", "warning"
+                else:
+                    rule_id, level = "incomplete", "warning"
+                results.append({
+                    "ruleId": rule_id,
+                    "level": level,
+                    "message": {"text": f"{prefix}{a.action}: {r.message}"},
+                    "locations": [{"physicalLocation": {"artifactLocation": {"uri": uri}}}],
+                })
     return {
         "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
         "version": "2.1.0",
@@ -538,17 +586,34 @@ def _verify_sarif_document(charter_path: Path, entries) -> dict:
     }
 
 
+_STATUS_MARK = {
+    "verified": "✓", "drift": "✗", "incomplete": "~",
+    "not-applicable": "-", "nothing-to-verify": "✓", "could-not-check": "?",
+}
+
+
+def _echo_actions(report) -> None:
+    for a in report.actions:
+        mark = _STATUS_MARK[a.status]
+        color = (_GREEN if a.status == "verified" else
+                 _RED if a.status == "drift" else _DIM)
+        label = (f"{a.action} (github: none)" if a.status == "not-applicable"
+                 else a.action)
+        _echo(f"  {color}{mark} {a.status}{_RESET} {label}")
+        for r in sorted(a.reasons, key=lambda r: r.kind != "drift"):
+            tag = f"{_RED}drift{_RESET}" if r.kind == "drift" else f"{_DIM}incomplete{_RESET}"
+            _echo(f"      - {tag}: {r.message}")
+
+
 def _verify_org(charter, charter_path: Path, org: str, branch: str,
-                output_format: str, *, limit: int = 1000) -> None:
+                output_format: str, *, limit: int = 1000,
+                allow_incomplete: bool = False) -> None:
     """Sweep every repo in an org against the charter and render the result."""
     try:
         sweep = sweep_org(charter, org, branch=branch, limit=limit)
     except CouldNotCheck as exc:
         _echo(f"{_RED}✗ could not sweep org {org}:{_RESET} {exc}")
         raise typer.Exit(code=2)
-
-    drifted = [r for r in sweep.results if r.status == "drift"]
-    unreadable = [r for r in sweep.results if r.status == "could-not-check"]
 
     # SARIF aggregates every swept repo's findings into ONE document (#72); each
     # result's message names the repo. could-not-check repos carry no report and
@@ -557,8 +622,7 @@ def _verify_org(charter, charter_path: Path, org: str, branch: str,
         doc = _verify_sarif_document(
             charter_path, [(r.repo, r.report) for r in sweep.results])
         _echo(json.dumps(doc, indent=2))
-        if not sweep.ok:
-            raise typer.Exit(code=1)
+        _finish(sweep.status, allow_incomplete)
         return
 
     if output_format == "json":
@@ -568,28 +632,18 @@ def _verify_org(charter, charter_path: Path, org: str, branch: str,
             "target": "github",
             "org": sweep.org,
             "branch": sweep.branch,
-            "ok": sweep.ok,
+            "status": sweep.status,
+            "ok": sweep.ok,  # deprecated: no repo drifted
             "truncated": sweep.truncated,
             "repos": [
-                {
-                    "repo": r.repo,
-                    "status": r.status,
-                    "error": r.error,
-                    "note": r.report.note if r.report else None,
-                    "findings": [
-                        {"target": f.target, "kind": f.kind, "message": f.message}
-                        for f in (r.report.findings if r.report else [])
-                    ],
-                    "unenforceable": [
-                        {"target": f.target, "kind": f.kind, "message": f.message}
-                        for f in (r.report.unenforceable if r.report else [])
-                    ],
-                }
+                {"repo": r.repo, "status": r.status, "error": r.error,
+                 **({k: v for k, v in _report_json(r.report).items() if k != "status"}
+                    if r.report else {"note": None, "actions": [], "findings": [],
+                                      "unenforceable": []})}
                 for r in sweep.results
             ],
         }))
-        if not sweep.ok:
-            raise typer.Exit(code=1)
+        _finish(sweep.status, allow_incomplete)
         return
 
     # human
@@ -598,28 +652,36 @@ def _verify_org(charter, charter_path: Path, org: str, branch: str,
           f"{len(sweep.results)} repos){_RESET}")
     if not sweep.results:
         _echo(f"{_DIM}0 repos found for org {sweep.org} — nothing to verify.{_RESET}")
+        _finish(sweep.status, allow_incomplete)
         return
     if sweep.truncated:
         _echo(f"{_RED}warning: the org has more repos than the listing limit; "
               f"this audit is INCOMPLETE.{_RESET}")
     for r in sweep.results:
-        if r.status == "clean":
-            extra = (f" {_DIM}({len(r.report.unenforceable)} unenforceable){_RESET}"
-                     if r.report and r.report.unenforceable else "")
-            _echo(f"  {_GREEN}✓{_RESET} {r.repo}{extra}")
-        elif r.status == "drift":
-            n = len(r.report.findings) if r.report else 0
-            _echo(f"  {_RED}✗ {r.repo}{_RESET} — {n} drift")
-        else:  # could-not-check
+        mark = _STATUS_MARK.get(r.status, "?")
+        if r.status == "could-not-check":
             _echo(f"  {_DIM}? {r.repo} — could not check: {r.error}{_RESET}")
+            continue
+        n_drift = len(r.report.findings) if r.report else 0
+        n_inc = sum(1 for a in r.report.actions if a.status == "incomplete") if r.report else 0
+        extra = (f" — {n_drift} drift" if r.status == "drift" else
+                 f" — {n_inc} action(s) incomplete" if r.status == "incomplete" else "")
+        color = _GREEN if r.status in ("verified", "nothing-to-verify") else \
+            _RED if r.status == "drift" else _DIM
+        _echo(f"  {color}{mark} {r.repo}{_RESET} {r.status}{extra}")
     _echo()
-    tail = f"; {len(unreadable)} could not be checked" if unreadable else ""
-    if drifted:
-        _echo(f"{_RED}{_BOLD}DRIFT{_RESET} — {len(drifted)} of {len(sweep.results)} "
-              f"repo(s) drift from the charter{tail}.")
-        raise typer.Exit(code=1)
-    _echo(f"{_GREEN}{_BOLD}OK{_RESET} — all {len(sweep.results)} repo(s) enforce "
-          f"the charter{tail}.")
+    counts = {s: sum(1 for r in sweep.results if r.status == s)
+              for s in ("drift", "incomplete", "could-not-check", "verified")}
+    tail = ", ".join(f"{n} {s}" for s, n in counts.items() if n)
+    verdict = {"drift": f"{_RED}{_BOLD}DRIFT{_RESET}",
+               "incomplete": f"{_BOLD}INCOMPLETE{_RESET}",
+               "verified": f"{_GREEN}{_BOLD}VERIFIED{_RESET}",
+               "nothing-to-verify": f"{_BOLD}NOTHING TO VERIFY{_RESET}"}[sweep.status]
+    _echo(f"{verdict} — {len(sweep.results)} repo(s): {tail or 'none judged'}.")
+    if sweep.status == "incomplete" and allow_incomplete:
+        _echo(f"{_DIM}warning: --allow-incomplete set; exiting 0 although the audit "
+              f"is incomplete.{_RESET}")
+    _finish(sweep.status, allow_incomplete)
 
 
 @app.command()
@@ -653,15 +715,21 @@ def verify(
         help="Output format: 'human' (default), 'json', or 'sarif' (a single "
              "SARIF 2.1.0 document — upload drift to GitHub code-scanning).",
     ),
+    allow_incomplete: bool = typer.Option(
+        False, "--allow-incomplete",
+        help="Exit 0 instead of 2 when verification is incomplete (prints a "
+             "warning). Never hides drift.",
+    ),
 ) -> None:
-    """Check that a live repo actually enforces what the charter declares.
+    """Check that a repo actually enforces what the charter declares.
 
-    Read-only: AgenRACI compares the charter against a branch's protection
-    settings and reports drift. It never changes the repo. The charter is a
-    *floor* — a repo whose settings are stricter passes. Pass `--repo OWNER/REPO`
-    to read one repo live via `gh api`, `--org ORG` to sweep every repo in an
-    org, or `--settings export.json` to verify offline. Exit codes: 0 clean,
-    1 drift, 2 could-not-check (bad input/repo/auth).
+    Read-only: AgenRACI compares the charter against a branch's protection and
+    CODEOWNERS, per gated action, and never changes the repo. Each action is
+    verified, drift, incomplete (could not be established; never a pass) or
+    not-applicable (`github: none`). Pass `--repo OWNER/REPO` to read one repo
+    live via `gh api`, `--org ORG` to sweep every repo in an org, or
+    `--settings export.json` to verify offline. Exit codes: 0 verified (or
+    nothing to verify), 1 drift, 2 incomplete or could-not-check.
     """
     if target != "github":
         _echo(f"{_RED}unknown --target {target!r}.{_RESET} "
@@ -687,7 +755,8 @@ def verify(
 
     if org is not None:
         _verify_org(charter, charter_path, org, branch, output_format,
-                    limit=1000 if limit is None else limit)
+                    limit=1000 if limit is None else limit,
+                    allow_incomplete=allow_incomplete)
         return
 
     if repo is not None:
@@ -705,6 +774,10 @@ def verify(
         except Exception as exc:  # noqa: BLE001 - malformed JSON, etc.
             _echo(f"{_RED}✗ could not read settings {settings}:{_RESET} {exc}")
             raise typer.Exit(code=2)
+        if not isinstance(data, dict):
+            _echo(f"{_RED}✗ could not read settings {settings}:{_RESET} "
+                  "expected a JSON object.")
+            raise typer.Exit(code=2)
         # Surface a silent mismatch: the export may declare a different branch
         # than the one we're verifying. Warn, don't fail — the user picked it.
         exported = data.get("branch")
@@ -717,8 +790,7 @@ def verify(
 
     if output_format == "sarif":
         _echo(json.dumps(_verify_sarif_document(charter_path, [(None, report)]), indent=2))
-        if not report.ok:
-            raise typer.Exit(code=1)
+        _finish(report.status, allow_incomplete)
         return
 
     if output_format == "json":
@@ -727,39 +799,41 @@ def verify(
             "project": report.project,
             "target": "github",
             "branch": report.branch,
-            "ok": report.ok,
-            "note": report.note,
-            "findings": [
-                {"target": f.target, "kind": f.kind, "message": f.message}
-                for f in report.findings
-            ],
-            "unenforceable": [
-                {"target": f.target, "kind": f.kind, "message": f.message}
-                for f in report.unenforceable
-            ],
+            **_report_json(report),
         }))
-        if not report.ok:
-            raise typer.Exit(code=1)
+        _finish(report.status, allow_incomplete)
         return
 
     # human
     source = f"repo {repo}" if repo is not None else f"settings {settings}"
+    evidence = ("live" if report.evidence == "live"
+                else "snapshot: evidence about when it was exported")
     _echo(f"{_BOLD}AgenRACI verify (github):{_RESET} {report.project}  "
-          f"{_DIM}(branch {report.branch}, {source}){_RESET}")
+          f"{_DIM}(branch {report.branch}, {source}, {evidence}){_RESET}")
     if report.note:
         _echo(f"{_DIM}{report.note}{_RESET}")
-    for f in report.findings:
-        _echo(f"  {_RED}✗ drift{_RESET} {f.target}: {f.message}")
-    for f in report.unenforceable:
-        _echo(f"  {_DIM}- unenforceable{_RESET} {f.target}: {f.message}")
+    _echo_actions(report)
+    if any(a.status != "not-applicable" for a in report.actions):
+        _echo(f"{_DIM}Member names (or their `github` handles) are taken as GitHub "
+              f"logins by convention.{_RESET}")
     _echo()
-    if report.findings:
-        _echo(f"{_RED}{_BOLD}DRIFT{_RESET} — {len(report.findings)} mismatch(es) "
-              f"between the charter and the live branch protection.")
-        raise typer.Exit(code=1)
-    _echo(f"{_GREEN}{_BOLD}OK{_RESET} — the branch enforces what the charter declares"
-          + (f" ({len(report.unenforceable)} action(s) unenforceable, see above)"
-             if report.unenforceable else "") + ".")
+    n = {s: sum(1 for a in report.actions if a.status == s)
+         for s in ("drift", "incomplete")}
+    if report.status == "drift":
+        _echo(f"{_RED}{_BOLD}DRIFT{_RESET} — {n['drift']} action(s) are not enforced "
+              f"the way the charter declares.")
+    elif report.status == "incomplete":
+        _echo(f"{_BOLD}INCOMPLETE{_RESET} — the guarantee could not be established "
+              f"for {n['incomplete']} action(s); this is not a pass.")
+        if allow_incomplete:
+            _echo(f"{_DIM}warning: --allow-incomplete set; exiting 0 although "
+                  f"verification is incomplete.{_RESET}")
+    elif report.status == "verified":
+        _echo(f"{_GREEN}{_BOLD}VERIFIED{_RESET} — the observed settings enforce every "
+              f"judged action's approval, as of this read.")
+    else:
+        _echo(f"{_BOLD}NOTHING TO VERIFY{_RESET} — no gated action maps to GitHub.")
+    _finish(report.status, allow_incomplete)
 
 
 @app.command()

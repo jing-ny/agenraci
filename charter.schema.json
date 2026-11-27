@@ -62,6 +62,22 @@
             }
           ],
           "default": null
+        },
+        "github": {
+          "anyOf": [
+            {
+              "const": "none",
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/GitHubMapping"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Github"
         }
       },
       "required": [
@@ -149,6 +165,25 @@
       "title": "Gate",
       "type": "object"
     },
+    "GitHubMapping": {
+      "additionalProperties": false,
+      "description": "Which repository paths an action's changes cover (``github.paths``).\n\nPatterns use CODEOWNERS syntax. ``verify --target github`` judges the\naction over these paths; ``github: none`` says the action is not a GitHub\nchange at all.",
+      "properties": {
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Paths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "title": "GitHubMapping",
+      "type": "object"
+    },
     "Member": {
       "additionalProperties": false,
       "description": "A human or agent appointed to a role. Appointing a member is one line.",
@@ -176,6 +211,18 @@
           ],
           "default": null,
           "title": "Model"
+        },
+        "github": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Github"
         }
       },
       "required": [
