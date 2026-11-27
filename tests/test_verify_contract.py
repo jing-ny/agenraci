@@ -225,6 +225,29 @@ def test_codeowners_file_owned_by_ineligible_owner_is_drift():
     assert verify_github(charter, fixed).status == "verified"
 
 
+def test_a_location_github_reads_first_must_be_owned_too():
+    """With CODEOWNERS at the root, adding .github/CODEOWNERS would replace it."""
+    charter = _charter(github="{paths: ['src/**']}")
+    prot = _prot("* @bob\n/src/ @alice\n/CODEOWNERS @alice\n",
+                 codeowners_path="CODEOWNERS")
+    report = verify_github(charter, prot)
+    assert report.status == "drift"
+    assert any(".github/CODEOWNERS" in f.message and "instead of" in f.message
+               for f in report.findings)
+    fixed = _prot("* @bob\n/src/ @alice\n/CODEOWNERS @alice\n/.github/ @alice\n",
+                  codeowners_path="CODEOWNERS")
+    assert verify_github(charter, fixed).status == "verified"
+
+
+def test_codeowners_error_on_the_rule_owning_the_file_is_incomplete():
+    charter = _charter(github="{paths: ['src/**']}")
+    prot = _prot("/src/ @alice\n/.github/CODEOWNERS @alice\n",
+                 codeowners_errors=[{"line": 2, "message": "Unknown owner"}])
+    report = verify_github(charter, prot)
+    assert report.status == "incomplete"
+    assert "codeowners-errors" in _codes(report)
+
+
 def test_scope_limits_which_rules_matter():
     charter = _charter(github="{paths: ['src/**']}")
     prot = _prot("* @alice\n/docs/ @bob\n")

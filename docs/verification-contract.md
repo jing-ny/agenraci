@@ -75,7 +75,8 @@ All of these, for every file in scope:
 3. The branch dismisses stale approvals when new commits are pushed (classic
    `dismiss_stale_reviews`, ruleset `dismiss_stale_reviews_on_push`). Without it, commits
    pushed after an eligible approval can merge unreviewed, so it is `drift`.
-   `require_last_push_approval` is recorded in the output but not required.
+   `require_last_push_approval` is not required. (Recording it in the output is
+   planned; the first release does not read it yet.)
 4. The CODEOWNERS rule that applies to the file is the **last matching** rule, and it
    lists at least one owner.
 5. **Every** owner listed on that rule is an eligible approver. GitHub accepts approval
@@ -91,7 +92,11 @@ All of these, for every file in scope:
    (`repos/{repo}/codeowners/errors?ref={branch}`). GitHub skips invalid lines, so an error there is
    `incomplete`, as is an error list that could not be read.
 9. The CODEOWNERS file itself is owned only by eligible approvers. Otherwise an
-   ineligible owner of that file can approve a change to ownership (`drift`).
+   ineligible owner of that file can approve a change to ownership (`drift`). The same
+   holds for every location GitHub reads before it (`.github/CODEOWNERS`, then
+   `CODEOWNERS`, then `docs/CODEOWNERS`): a file added there would replace the current
+   one, so a path there with no eligible owner is `drift` too. An error GitHub reports
+   on the rule that owns any of these paths is `incomplete`, as in item 8.
 10. Bypass evidence was read and shows no one outside the allowed set can skip the
     requirement (see §4).
 
@@ -172,8 +177,10 @@ Proposed, for single-repo, offline and org runs alike:
 | `1` | any action, or any repo in a sweep, is `drift` |
 | `2` | no drift, but something is `incomplete` or `could-not-check` |
 
-`--allow-incomplete` turns exit `2` into `0` and prints a warning; it never hides drift
-(D2). `not-applicable` actions never change the exit code.
+`--allow-incomplete` turns an `incomplete` exit `2` into `0` and prints a warning; it
+never hides drift (D2), and it never passes `could-not-check`, where nothing could be
+read at all (a single repo that couldn't be read, or a sweep in which no repo could).
+`not-applicable` actions never change the exit code.
 
 ### JSON
 

@@ -294,7 +294,10 @@ stub targets `(STUB)` in their output.
   request could add, by an exact search over the patterns; it does not list the
   branch's files. It also requires one approving review, code-owner review and
   stale-review dismissal on the branch, checks GitHub's CODEOWNERS error list, and
-  checks who owns the CODEOWNERS file itself. Each action is `verified`, `drift`,
+  checks who owns the CODEOWNERS file itself (and each location GitHub would read
+  before it, since a file added there would replace it). A CODEOWNERS file too
+  large to search within a fixed budget makes the action `incomplete` (`too-complex`),
+  though any drift already proved is still reported. Each action is `verified`, `drift`,
   `incomplete` (could not be established: missing or unreadable evidence, an
   unsupported pattern, an approver role with no human, no `github` key; never a
   pass) or `not-applicable` (`github: none`); drift beats incomplete beats verified.
@@ -303,14 +306,16 @@ stub targets `(STUB)` in their output.
   `incomplete`. Enabled auto-merge is not drift: GitHub auto-merge waits for
   required reviews and checks (#81). Exit codes: `0` verified or nothing to
   verify, `1` drift, `2` incomplete or could-not-check; `--allow-incomplete`
-  turns `2` into `0` with a warning and never hides drift. `--format json` adds a
+  turns an incomplete `2` into `0` with a warning, never hides drift, and never
+  passes could-not-check. `--format json` adds a
   top-level `status`, `evidence` (`live` or `snapshot`) and per-action results
   (`ok`, `findings` and `unenforceable` are kept, deprecated); `--format sarif`
   reports drift as `error` and incomplete as `warning`. The branch settings come
   either live via `gh api` (`--repo OWNER/REPO`, reading and unioning GitHub's
   classic branch-protection and ruleset shapes) or from an offline export
   (`--settings <json>`, in which an absent field is missing evidence, never a
-  default). Only GitHub's "Branch not protected" 404 means "no classic
+  default, and a value of the wrong type, such as `"true"` for `true`, stops the
+  run with exit `2`). Only GitHub's "Branch not protected" 404 means "no classic
   protection"; any other failure to read a control makes the actions that need it
   `incomplete`. A repo-level 404/401/403 or a missing `gh` is could-not-check,
   never drift.

@@ -47,7 +47,14 @@ class UnsupportedPattern(ValueError):
 
 
 class TooComplex(RuntimeError):
-    """The example-path search exceeded its state budget."""
+    """The example-path search exceeded its state budget.
+
+    ``found`` holds whatever winning_rules had already proved before it gave up.
+    """
+
+    def __init__(self, *args, found=None):
+        super().__init__(*args)
+        self.found = dict(found or {})
 
 
 @dataclass
@@ -88,6 +95,39 @@ class NFA:
                 if _label_matches(label, ch):
                     nxt.add(t)
         return self.closure(nxt) if nxt else frozenset()
+
+    def is_universal(self, states: frozenset[int], limit: int = 2_000) -> bool:
+        """True if every path continuing from ``states`` still matches.
+
+        Then this rule overrides every earlier rule for good, which lets the
+        searches below drop them. Characters the pattern never names behave
+        alike, so one stand-in covers them all and the check is exact; past
+        ``limit`` subsets it gives up and answers False, which is always safe.
+        """
+        key = ("universal", states)
+        hit = self._memo.get(key)
+        if hit is not None:
+            return hit
+        lits = self._memo.get("literals")
+        if lits is None:
+            lits = self._memo["literals"] = sorted(self.literals() | {"/"})
+            other = next(c for c in "xyzqjkwvb0123456789\u00e9" if c not in lits)
+            lits.append(other)
+        seen = {states}
+        todo = [states]
+        result = True
+        while todo:
+            cur = todo.pop()
+            if self.accept not in cur or len(seen) > limit:
+                result = False
+                break
+            for ch in lits:
+                nxt = self.step(cur, ch)
+                if nxt not in seen:
+                    seen.add(nxt)
+                    todo.append(nxt)
+        self._memo[key] = result
+        return result
 
     def literals(self) -> set[str]:
         return {label[1] for row in self.edges for label, _ in row if label[0] == "c"}
@@ -185,11 +225,17 @@ def pattern_ast(pattern: str) -> tuple:
     segs = core.split("/")
     if "" in segs:
         raise UnsupportedPattern(f"{pattern!r}: empty path segment")
+    # "**/**" means the same as "**": collapse runs so each "**" sits next to a
+    # real segment (or stands alone), which the translation below relies on.
+    segs = [seg for i, seg in enumerate(segs)
+            if not (seg == "**" and i > 0 and segs[i - 1] == "**")]
 
     items: list[tuple] = []
     if segs[0] == "**":
-        if len(segs) == 1:  # "**" alone: everything
-            return ("seq", [("any",), ("star_any",)])
+        if len(segs) == 1:
+            if dir_only:  # "**/": inside some directory, so never a root file
+                return ("seq", [("any",), ("star_any",), _INSIDE])
+            return ("seq", [("any",), ("star_any",)])  # "**": everything
         items.append(_ANY_DIRS)
         segs = segs[1:]
     elif not anchored:
@@ -202,6 +248,8 @@ def pattern_ast(pattern: str) -> tuple:
         if seg == "**":
             if last:
                 items.append(_INSIDE)
+                if dir_only:  # "a/**/": inside a directory below a/
+                    items.append(_INSIDE)
                 trailing_inside = True
             else:
                 if i > 0 and not prev_was_dirs:
@@ -321,6 +369,8 @@ def find_example(include: list[NFA], exclude: list[NFA] = (),
             if any(not s for s in ninc):
                 continue
             nexc = tuple(n.step(s, ch) if s else s for n, s in zip(exclude, exc))
+            if any(s and n.is_universal(s) for n, s in zip(exclude, nexc)):
+                continue  # an exclude matches every longer path too
             nxt = (nv, ninc, nexc)
             if nxt in parent:
                 continue
@@ -329,3 +379,114 @@ def find_example(include: list[NFA], exclude: list[NFA] = (),
             parent[nxt] = (state, ch)
             queue.append(nxt)
     return None
+
+
+def winning_rules(include: NFA, rules: list[NFA], targets=None, *,
+                  budget: int = 200_000,
+                  work: int = 4_000_000) -> dict[int | None, str]:
+    """For every path ``include`` accepts, which of ``rules`` wins (the last match)?
+
+    Returns ``{rule index: shortest example path}`` for each rule that wins on
+    some path, and ``{None: example}`` if some path matches no rule at all. With
+    ``targets`` (rule indexes, and None for "no rule"), only those are looked
+    for, and the search stops early once none of them can still win. One
+    search over all rules at once, instead of one search per rule. Raises
+    TooComplex past ``budget`` states or ``work`` rule steps, so a huge
+    CODEOWNERS file ends in "could not decide" rather than a long wait.
+    """
+    # Rules that can never match a path ``include`` covers can't win there.
+    relevant = []
+    for i, nfa in enumerate(rules):
+        try:
+            overlaps = find_example([include, nfa], budget=20_000) is not None
+        except TooComplex:
+            overlaps = True
+        if overlaps:
+            relevant.append(i)
+    lits: set[str] = {"/"} | include.literals()
+    for i in relevant:
+        lits |= rules[i].literals()
+    other = next((c for c in "xyzqjkwvb0123456789" if c not in lits), "é")
+    alphabet = [other] + sorted(lits)
+
+    def alive(pairs):
+        live = [(i, s) for i, s in pairs if s]
+        # A rule that matches every longer path overrides every earlier rule
+        # for good, so those can never win from here on.
+        for k in range(len(live) - 1, -1, -1):
+            i, s = live[k]
+            if rules[i].is_universal(s):
+                return tuple(live[k:])
+        return tuple(live)
+
+    moves: dict = {}
+
+    def advance(live, ch):
+        nonlocal work
+        hit = moves.get((live, ch))
+        if hit is None:
+            work -= len(live)
+            if work < 0:
+                raise TooComplex("example-path search exceeded its budget")
+            hit = moves[(live, ch)] = alive((i, rules[i].step(s, ch)) for i, s in live)
+        return hit
+
+    start = (0, include.closure([include.start]),
+             alive((i, rules[i].closure([rules[i].start])) for i in relevant))
+    parent: dict = {start: None}
+    queue = deque([start])
+    found: dict[int | None, str] = {}
+
+    def path_to(state) -> str:
+        chars = []
+        while parent[state] is not None:
+            state, ch = parent[state]
+            chars.append(ch)
+        return "".join(reversed(chars))
+
+    wanted = None if targets is None else set(targets)
+
+    def hopeless(live) -> bool:
+        """True when no wanted winner can come out of this state any more."""
+        if wanted is None:
+            return False
+        if None in wanted and not (live and rules[live[0][0]].is_universal(live[0][1])):
+            return False
+        return not any(i in wanted for i, _ in live)
+
+    try:
+        while queue:
+            if wanted is not None and not wanted:
+                break
+            state = queue.popleft()
+            v, inc, live = state
+            if v == 1 and include.accept in inc:
+                winner = None
+                for i, s in reversed(live):
+                    if rules[i].accept in s:
+                        winner = i
+                        break
+                if winner not in found and (wanted is None or winner in wanted):
+                    found[winner] = path_to(state)
+                    if wanted is not None:
+                        wanted.discard(winner)
+            if hopeless(live):
+                continue
+            for ch in alphabet:
+                nv = _path_step(v, ch)
+                if nv < 0:
+                    continue
+                ninc = include.step(inc, ch)
+                if not ninc:
+                    continue
+                nlive = advance(live, ch)
+                nxt = (nv, ninc, nlive)
+                if nxt in parent:
+                    continue
+                if len(parent) >= budget:
+                    raise TooComplex("example-path search exceeded its budget")
+                parent[nxt] = (state, ch)
+                queue.append(nxt)
+    except TooComplex as exc:
+        raise TooComplex(str(exc), found=found) from None
+    return found

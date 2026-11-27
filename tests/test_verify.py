@@ -195,6 +195,33 @@ def test_cli_bad_settings_is_could_not_check_exit_two(tmp_path):
     assert _invoke(_charter(tmp_path, _HUMAN_GATED), "--settings", bad).exit_code == 2
 
 
+@pytest.mark.parametrize("override", [
+    {"require_code_owner_review": "false"},    # a string is not a yes
+    {"dismiss_stale_reviews": 1},
+    {"required_reviews": "1"},
+    {"required_reviews": True},
+    {"owner_permissions": {"alice": 1}},
+    {"owner_permissions": ["alice"]},
+    {"codeowners": ["* @alice"]},
+    {"bypass_actors": "none"},
+    {"codeowners_errors": "none"},
+    {"enforce_admins": "yes"},
+])
+def test_cli_settings_with_wrong_types_are_could_not_check(tmp_path, override):
+    result = _invoke(_charter(tmp_path, _HUMAN_GATED), "--settings",
+                     _full(tmp_path, **override))
+    assert result.exit_code == 2
+    assert "could not read settings" in result.output.lower()
+
+
+def test_cli_null_owner_permission_is_unknown_not_a_pass(tmp_path):
+    result = _invoke(_charter(tmp_path, _HUMAN_GATED), "--settings",
+                     _full(tmp_path, owner_permissions={"alice": None}),
+                     "--format", "json")
+    assert result.exit_code == 2
+    assert json.loads(result.stdout)["status"] == "incomplete"
+
+
 def test_cli_warns_on_branch_mismatch(tmp_path):
     result = _invoke(_charter(tmp_path, _HUMAN_GATED), "--settings",
                      _full(tmp_path, branch="develop"))
@@ -302,6 +329,7 @@ def _runner(*, repo=(0, '{"allow_auto_merge": false}', ""),
             permission=(0, '{"permission": "write", "role_name": "write"}', ""),
             team_repo=(0, '{"permissions": {"push": true}}', ""),
             team_members=(0, '[{"login": "alice"}]', ""),
+            team=(0, '{"slug": "rel"}', ""),
             calls=None):
     """A fake `gh api` runner keyed on path fragments."""
     def run(argv):
@@ -316,6 +344,8 @@ def _runner(*, repo=(0, '{"allow_auto_merge": false}', ""),
             return team_repo
         if path.startswith("orgs/") and "/members" in path:
             return team_members
+        if path.startswith("orgs/"):
+            return team
         if "/protection" in path:
             return protection
         if "/rules/branches/" in path:
@@ -376,8 +406,103 @@ def test_fetch_live_unreadable_permission_stays_unknown():
 def test_fetch_live_non_collaborator_has_no_write():
     prot = fetch_live_protection(
         "o/r", "main",
-        runner=_runner(codeowners="* @alice\n", permission=(1, "", "404 Not Found")))
+        runner=_runner(codeowners="* @alice\n",
+                       permission=(0, '{"permission": "none", "role_name": ""}', "")))
     assert prot.owner_permissions == {"alice": False}
+
+
+def test_fetch_live_collaborator_404_stays_unknown():
+    # GitHub also answers 404 for a user the token isn't allowed to see.
+    prot = fetch_live_protection(
+        "o/r", "main",
+        runner=_runner(codeowners="* @alice\n", permission=(1, "", "404 Not Found")))
+    assert prot.owner_permissions == {}
+
+
+def test_fetch_live_team_404_counts_only_when_the_team_is_visible():
+    no_access = fetch_live_protection(
+        "o/r", "main",
+        runner=_runner(codeowners="* @o/rel\n", team_repo=(1, "", "404 Not Found")))
+    assert no_access.teams["o/rel"].write is False
+    hidden = fetch_live_protection(
+        "o/r", "main",
+        runner=_runner(codeowners="* @o/rel\n", team_repo=(1, "", "404 Not Found"),
+                       team=(1, "", "404 Not Found")))
+    assert hidden.teams["o/rel"].write is None
+
+
+def _contents_runner(files, **kw):
+    """Like _runner, but serves each CODEOWNERS location from ``files``."""
+    base = _runner(**kw)
+
+    def run(argv):
+        path = argv[-1]
+        if "/contents/" in path:
+            for loc, answer in files.items():
+                if f"/contents/{loc}?" in path:
+                    return answer
+            return (1, "", "404 Not Found")
+        return base(argv)
+    return run
+
+
+def _file(text):
+    enc = base64.b64encode(text.encode()).decode()
+    return (0, json.dumps({"type": "file", "encoding": "base64", "content": enc,
+                           "size": len(text)}), "")
+
+
+def test_fetch_live_empty_codeowners_still_takes_precedence():
+    prot = fetch_live_protection("o/r", "main", runner=_contents_runner({
+        ".github/CODEOWNERS": (0, json.dumps({"type": "file", "encoding": "base64",
+                                               "content": "", "size": 0}), ""),
+        "CODEOWNERS": _file("* @alice\n"),
+    }))
+    assert prot.codeowners_found is True
+    assert prot.codeowners_path == ".github/CODEOWNERS"
+    assert prot.codeowners == ""
+
+
+def test_fetch_live_directory_at_a_location_is_skipped():
+    prot = fetch_live_protection("o/r", "main", runner=_contents_runner({
+        ".github/CODEOWNERS": (0, json.dumps([{"name": "x"}]), ""),
+        "CODEOWNERS": _file("* @alice\n"),
+    }))
+    assert prot.codeowners_path == "CODEOWNERS"
+
+
+def test_fetch_live_codeowners_too_large_to_read_is_unknown():
+    big = (0, json.dumps({"type": "file", "encoding": "none", "content": "",
+                          "size": 2_000_000}), "")
+    prot = fetch_live_protection("o/r", "main",
+                                 runner=_contents_runner({".github/CODEOWNERS": big}))
+    assert prot.codeowners_found is None
+
+
+def test_fetch_live_a_full_page_of_rules_is_unknown():
+    rules = json.dumps([{"type": "deletion"}] * 100)
+    prot = fetch_live_protection("o/r", "main", runner=_runner(rules=(0, rules, "")))
+    assert prot.required_reviews is None
+    assert prot.require_code_owner_review is None
+
+
+@pytest.mark.parametrize("kw", [
+    {"repo": (0, "[]", "")},                                   # not an object
+    {"protection": (0, '{"required_pull_request_reviews": 5}', "")},
+])
+def test_fetch_live_unexpected_shapes_are_could_not_check(kw):
+    # A shape GitHub never sends ends in "couldn't check" (exit 2), not a crash.
+    with pytest.raises(CouldNotCheck):
+        fetch_live_protection("o/r", "main", runner=_runner(**kw))
+
+
+@pytest.mark.parametrize("kw", [
+    {"protection": (0, "[1]", "")},
+    {"rules": (0, "{}", "")},
+])
+def test_fetch_live_unexpected_protection_body_is_unknown(kw):
+    prot = fetch_live_protection("o/r", "main", runner=_runner(**kw))
+    assert prot.required_reviews is None
 
 
 def test_fetch_live_unreadable_codeowners_errors_stay_unknown():
@@ -483,6 +608,13 @@ def test_parse_protection_strips_at_signs():
     prot = parse_protection({"code_owners": ["@alice"], "owner_permissions": {"@Alice": True}})
     assert prot.code_owners == ["alice"]
     assert prot.owner_permissions == {"alice": True}
+
+
+def test_parse_protection_reads_permission_strings_and_bare_error_lines():
+    prot = parse_protection({"owner_permissions": {"a": "maintain", "b": "read", "c": None},
+                             "codeowners_errors": [3]})
+    assert prot.owner_permissions == {"a": True, "b": False}   # c stays unknown
+    assert prot.codeowners_errors == [{"line": 3}]
 
 
 def test_cli_live_mode_uses_the_live_reader(tmp_path, monkeypatch):
@@ -632,6 +764,22 @@ def test_cli_org_allow_incomplete(tmp_path, monkeypatch):
     charter = _charter(tmp_path, _HUMAN_GATED)
     assert _invoke(charter, "--org", "o").exit_code == 2
     assert _invoke(charter, "--org", "o", "--allow-incomplete").exit_code == 0
+
+
+def test_cli_org_allow_incomplete_never_hides_could_not_check(tmp_path, monkeypatch):
+    # Not one repo could be read: nothing was verified, so this is never a pass.
+    _fake_sweep(monkeypatch, [RepoResult("o/a", "could-not-check", error="403")],
+                status="could-not-check")
+    result = _invoke(_charter(tmp_path, _HUMAN_GATED), "--org", "o",
+                     "--allow-incomplete")
+    assert result.exit_code == 2
+    assert "COULD NOT CHECK" in result.stdout
+
+
+def test_sweep_org_every_repo_unreadable_is_could_not_check(tmp_path):
+    charter = load_charter(_charter(tmp_path, _HUMAN_GATED))
+    report = sweep_org(charter, "o", runner=_sweep_runner({"o/a": "error"}))
+    assert report.status == "could-not-check"
 
 
 def test_cli_org_sarif_names_repos(tmp_path, monkeypatch):

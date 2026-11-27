@@ -42,9 +42,11 @@ pip install agenraci          # the checker + compile + verify
 
 For **live verify** (step 4, `--repo` mode): the `gh` CLI must be installed and on
 `PATH`, and you need admin permission on the repo — a personal access token (PAT)
-with `repo` scope stored as `GH_TOKEN`. Without those, `verify` exits 2
-(could-not-check), not 1 (drift). See the exit-code table in step 4 for what that
-means and why it is not the same as finding a problem.
+with `repo` scope stored as `GH_TOKEN`. Without `gh`, or for a repo the token can't
+see, `verify` exits 2 (could-not-check). A token that can see the repo but lacks admin
+can't read the protection settings, so the actions that depend on them come out
+`incomplete`, also exit 2. Neither is 1 (drift). See the exit-code table in step 4 for
+what that means and why it is not the same as finding a problem.
 
 For **offline verify** (step 4, `--settings` mode): no `gh`, no token, no admin
 needed. Useful in hermetic CI, sandboxes, or when you can't grant admin to the
@@ -243,7 +245,9 @@ agenraci verify examples/sprout/charter.yaml --repo OWNER/REPO
 ```
 
 Requires: `gh` on PATH, admin permission (`GH_TOKEN` set to a PAT), and the repo to
-exist. Without those, exit 2 (could-not-check) is the result — see the table below.
+exist. Without `gh` or access to the repo, the result is could-not-check; without
+admin, the settings verify can't read leave the affected actions `incomplete`. Both
+exit 2 — see the table below.
 
 Until [#80](https://github.com/jing-ny/agenraci/issues/80) ships, live verify does not
 read who can bypass the review requirement, so every mapped action with a human approver
@@ -254,7 +258,8 @@ comes out `incomplete` with this reason, and the run exits 2:
 ```
 
 Any drift is still reported, and drift exits 1. Pass `--allow-incomplete` to exit 0 (with
-a warning) when the only problem is evidence verify could not establish.
+a warning) when the only problem is evidence verify could not establish. It does not
+cover could-not-check: a run that read nothing at all still exits 2.
 
 ### Offline mode: `--settings export.json`
 
@@ -295,6 +300,10 @@ Every field is evidence. A field that is missing is reported as missing evidence
 - `enforce_admins` and `bypass_actors` say who can bypass the review. `enforce_admins:
   null` means the branch has no classic protection. A bypass that is present is reported
   `incomplete` until #80 judges it.
+- Types are strict. A yes/no field takes JSON `true`/`false` (never `"true"` or `1`),
+  `required_reviews` takes a whole number, and the list fields take lists. A value of
+  the wrong type makes verify stop with "could not read settings" (exit 2) rather than
+  guess. An owner whose permission is `null` is treated as unknown (`incomplete`).
 
 An older export that lists only owner names (`"code_owners": ["dev", "you"]`) can no
 longer pass: without the CODEOWNERS text, verify cannot tell which rule owns which path.
@@ -392,9 +401,10 @@ Output:
 Exit code: **2**.
 
 Exit 2 means AgenRACI could not complete the check — not that it found drift, not
-that the charter passes. The same exit code covers: `gh` not installed, `gh` not
-authenticated, the repo does not exist, or the token lacks admin permission (403/404
-from the API). **Exit 2 is never a pass or a fail.**
+that the charter passes. Could-not-check covers: `gh` not installed, `gh` not
+authenticated, or a repo that does not exist or that the token can't see. A token that
+lacks admin permission gets `incomplete` instead, naming each setting it couldn't read.
+Both exit 2. **Exit 2 is never a pass or a fail.**
 
 This is why the verify Action in CI defaults to `continue-on-error: true` when no
 admin PAT is supplied: a could-not-check exit must not turn the build red and be
@@ -406,7 +416,7 @@ misread as a charter violation.
 |-----------|---------|--------|
 | `0` | Every judged action is verified (or nothing maps to GitHub) | This holds as of the read; re-run after changes |
 | `1` | Drift — some change can merge without an approval the charter requires | Re-apply the compiled protection and CODEOWNERS; the drift lines name an example path |
-| `2` | Incomplete or could-not-check — a guarantee could not be established | Read the `incomplete` lines; supply the missing evidence or permission, or pass `--allow-incomplete` to accept the gap |
+| `2` | Incomplete or could-not-check — a guarantee could not be established | Read the `incomplete` lines; supply the missing evidence or permission, or pass `--allow-incomplete` to accept an incomplete result (it never accepts could-not-check) |
 
 `--format json` gives the same result per action (`status`, `paths`,
 `eligible_approvers`, and `reasons` with a `kind`, `code` and `message`), and

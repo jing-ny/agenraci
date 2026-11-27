@@ -28,7 +28,8 @@ inputs:
   allow-incomplete:
     description: >-
       Set to "true" to pass (with a warning) when verification is incomplete,
-      i.e. a guarantee could not be established. Drift always fails.
+      i.e. a guarantee could not be established. Drift always fails, and so does
+      a run that could not read the repository at all.
     required: false
     default: "false"
   python-version:

@@ -486,7 +486,9 @@ def _verify_exit_code(status: str, allow_incomplete: bool) -> int:
     """Exit codes from docs/verification-contract.md §6 (D2)."""
     if status == "drift":
         return 1
-    if status in ("incomplete", "could-not-check"):
+    if status == "could-not-check":
+        return 2  # nothing was read at all; --allow-incomplete doesn't cover it
+    if status == "incomplete":
         return 0 if allow_incomplete else 2
     return 0  # verified, nothing-to-verify
 
@@ -675,6 +677,7 @@ def _verify_org(charter, charter_path: Path, org: str, branch: str,
     tail = ", ".join(f"{n} {s}" for s, n in counts.items() if n)
     verdict = {"drift": f"{_RED}{_BOLD}DRIFT{_RESET}",
                "incomplete": f"{_BOLD}INCOMPLETE{_RESET}",
+               "could-not-check": f"{_BOLD}COULD NOT CHECK{_RESET}",
                "verified": f"{_GREEN}{_BOLD}VERIFIED{_RESET}",
                "nothing-to-verify": f"{_BOLD}NOTHING TO VERIFY{_RESET}"}[sweep.status]
     _echo(f"{verdict} — {len(sweep.results)} repo(s): {tail or 'none judged'}.")
@@ -718,7 +721,8 @@ def verify(
     allow_incomplete: bool = typer.Option(
         False, "--allow-incomplete",
         help="Exit 0 instead of 2 when verification is incomplete (prints a "
-             "warning). Never hides drift.",
+             "warning). Never hides drift, and a repo that could not be read at "
+             "all still exits 2.",
     ),
 ) -> None:
     """Check that a repo actually enforces what the charter declares.
@@ -784,7 +788,11 @@ def verify(
         if exported is not None and str(exported) != branch:
             _echo(f"{_DIM}note: settings export is for branch {exported!r}, "
                   f"but verifying against {branch!r}.{_RESET}")
-        protection = parse_protection(data, branch=branch)
+        try:
+            protection = parse_protection(data, branch=branch)
+        except ValueError as exc:
+            _echo(f"{_RED}✗ could not read settings {settings}:{_RESET} {exc}")
+            raise typer.Exit(code=2)
 
     report = verify_github(charter, protection, branch=branch)
 

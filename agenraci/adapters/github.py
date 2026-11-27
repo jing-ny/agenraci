@@ -24,6 +24,7 @@ from ..codeowners import (
     find_example,
     last_match,
     parse_rules,
+    winning_rules,
 )
 
 
@@ -308,13 +309,29 @@ class VerifyReport:
 
 
 def _opt_bool(data: dict, key: str) -> bool | None:
-    return bool(data[key]) if key in data and data[key] is not None else None
+    """A JSON boolean, or None (missing evidence). Anything else is rejected."""
+    value = data.get(key)
+    if value is None or isinstance(value, bool):
+        return value
+    raise ValueError(f"`{key}` must be true, false or null, got {value!r}")
 
 
-def _has_write(value) -> bool:
+def _has_write(value) -> bool | None:
+    """True/False for a stated access level, None when it is unknown (null)."""
+    if value is None:
+        return None
     if isinstance(value, bool):
         return value
-    return str(value).lower() in _WRITE_PERMISSIONS
+    if isinstance(value, str):
+        return value.lower() in _WRITE_PERMISSIONS
+    raise ValueError(f"an access level must be true, false or a role name, got {value!r}")
+
+
+def _opt_str(data: dict, key: str) -> str | None:
+    value = data.get(key)
+    if value is None or isinstance(value, str):
+        return value
+    raise ValueError(f"`{key}` must be a string or null, got {value!r}")
 
 
 def parse_protection(data: dict, *, branch: str = "main") -> GitHubProtection:
@@ -341,47 +358,63 @@ def parse_protection(data: dict, *, branch: str = "main") -> GitHubProtection:
     reports the CODEOWNERS evidence as missing.
     """
     teams = None
-    if isinstance(data.get("teams"), dict):
+    if data.get("teams") is not None:
+        if not isinstance(data["teams"], dict):
+            raise ValueError("`teams` must be an object of team name -> facts")
         teams = {}
         for name, facts in data["teams"].items():
             facts = facts or {}
+            if not isinstance(facts, dict):
+                raise ValueError(f"`teams.{name}` must be an object")
             members = facts.get("members")
-            perm = facts.get("permission")
+            if members is not None and not isinstance(members, list):
+                raise ValueError(f"`teams.{name}.members` must be a list")
             teams[str(name).lstrip("@").lower()] = TeamFacts(
                 members=[str(m).lstrip("@") for m in members]
-                if isinstance(members, list) else None,
-                write=_has_write(perm) if perm is not None else None,
+                if members is not None else None,
+                write=_has_write(facts.get("permission")),
             )
     perms = None
-    if isinstance(data.get("owner_permissions"), dict):
-        perms = {str(k).lstrip("@").lower(): _has_write(v)
-                 for k, v in data["owner_permissions"].items()}
+    if data.get("owner_permissions") is not None:
+        if not isinstance(data["owner_permissions"], dict):
+            raise ValueError("`owner_permissions` must be an object of login -> access")
+        perms = {}
+        for k, v in data["owner_permissions"].items():
+            access = _has_write(v)
+            if access is not None:  # null = unknown, so leave the owner unread
+                perms[str(k).lstrip("@").lower()] = access
     if "codeowners" in data:
-        text = data["codeowners"]
+        text = _opt_str(data, "codeowners")
         found = text is not None
     else:
         text, found = None, None
+    reviews = data.get("required_reviews")
+    if reviews is not None and (isinstance(reviews, bool) or not isinstance(reviews, int)):
+        raise ValueError(f"`required_reviews` must be a whole number or null, got {reviews!r}")
+    for key in ("codeowners_errors", "bypass_actors", "code_owners"):
+        if data.get(key) is not None and not isinstance(data[key], list):
+            raise ValueError(f"`{key}` must be a list or null")
     enforce_admins = None
     if "enforce_admins" in data:
-        enforce_admins = True if data["enforce_admins"] is None else bool(data["enforce_admins"])
+        enforce_admins = (True if data["enforce_admins"] is None
+                          else _opt_bool(data, "enforce_admins"))
     errors = data.get("codeowners_errors")
     bypass = data.get("bypass_actors")
     return GitHubProtection(
         branch=str(data.get("branch", branch)),
-        required_reviews=(int(data["required_reviews"])
-                          if data.get("required_reviews") is not None else None),
+        required_reviews=reviews,
         require_code_owner_review=_opt_bool(data, "require_code_owner_review"),
         dismiss_stale_reviews=_opt_bool(data, "dismiss_stale_reviews"),
         codeowners=str(text) if text is not None else None,
         codeowners_found=found,
-        codeowners_path=data.get("codeowners_path"),
+        codeowners_path=_opt_str(data, "codeowners_path"),
         codeowners_errors=([e if isinstance(e, dict) else {"line": e} for e in errors]
                            if isinstance(errors, list) else None),
         owner_permissions=perms,
         teams=teams,
         enforce_admins=enforce_admins,
         bypass_actors=list(bypass) if isinstance(bypass, list) else None,
-        allow_auto_merge=bool(data.get("allow_auto_merge", False)),
+        allow_auto_merge=bool(_opt_bool(data, "allow_auto_merge")),
         code_owners=[str(o).lstrip("@") for o in data.get("code_owners", [])],
         evidence="snapshot",
     )
@@ -514,43 +547,56 @@ def _codeowners_reasons(name: str, action, eligible: set[str],
     supported = [r for r in rules if r.nfa is not None]
     out: list[Reason] = []
     seen: set[tuple] = set()
-    try:
-        path_nfas = [(p, compile_pattern(p)) for p in action.github.paths]
-        for pattern, p_nfa in path_nfas:
-            # A path no rule matches has no code owner at all.
-            ex = find_example([p_nfa], [r.nfa for r in supported])
-            if ex is not None and ("none",) not in seen:
-                seen.add(("none",))
-                out.append(Reason("drift", "no-owner",
-                                  f"no CODEOWNERS rule covers `{ex}` (in `{pattern}`), "
-                                  "so a change there needs no code-owner approval."))
-            for k, rule in enumerate(supported):
-                if ("rule", k) in seen or not _judge_owners(rule, eligible, prot, ""):
-                    continue
-                ex = find_example([p_nfa, rule.nfa],
-                                  [r.nfa for r in supported[k + 1:]])
-                if ex is None:
-                    continue
-                seen.add(("rule", k))
-                out.extend(_judge_owners(rule, eligible, prot,
-                                         f"a change to `{ex}` (in `{pattern}`)"))
-    except TooComplex:
+    too_complex = False
+    for pattern in action.github.paths:
+        p_nfa = compile_pattern(pattern)
+        # Only the rules that would be a problem, and "no rule", need an
+        # example; the search can stop once none of them can win.
+        wanted = {None} | {k for k, rule in enumerate(supported)
+                           if _judge_owners(rule, eligible, prot, "")}
+        try:
+            winners = winning_rules(p_nfa, [r.nfa for r in supported], wanted)
+        except TooComplex as exc:
+            # Keep what was proved before the search gave up: a problem found
+            # is still a problem.
+            winners = exc.found
+            too_complex = True
+        # A path no rule matches has no code owner at all.
+        ex = winners.pop(None, None)
+        if ex is not None and ("none",) not in seen:
+            seen.add(("none",))
+            out.append(Reason("drift", "no-owner",
+                              f"no CODEOWNERS rule covers `{ex}` (in `{pattern}`), "
+                              "so a change there needs no code-owner approval."))
+        for k in sorted(winners):
+            if ("rule", k) in seen:
+                continue
+            seen.add(("rule", k))
+            out.extend(_judge_owners(supported[k], eligible, prot,
+                                     f"a change to `{winners[k]}` (in `{pattern}`)"))
+    if too_complex:
         out.append(Reason("incomplete", "too-complex",
                           "the CODEOWNERS rules were too complex to judge exactly."))
 
     # The CODEOWNERS file itself: whoever owns it can approve ownership changes.
-    if prot.codeowners_path is None:
+    # So can whoever owns a location GitHub reads first, by adding a file there.
+    own_paths = _codeowners_own_paths(prot.codeowners_path)
+    if own_paths is None:
         out.append(Reason("incomplete", "evidence-missing",
                           "where the CODEOWNERS file lives was not observed, so its "
                           "own owners could not be judged."))
-    else:
-        path = prot.codeowners_path.lstrip("/")
+    for path in own_paths or []:
         rule = last_match(supported, path)
-        where = f"the CODEOWNERS file `{path}`"
+        if path == own_paths[-1]:
+            where = f"the CODEOWNERS file `{path}`"
+            consequence = "so anyone with write access can change who owns what."
+        else:
+            where = (f"`{path}`, which GitHub would use instead of "
+                     f"`{own_paths[-1]}` if someone added it")
+            consequence = "so anyone with write access can add one and take ownership."
         if rule is None:
             out.append(Reason("drift", "no-owner",
-                              f"no CODEOWNERS rule covers {where}, so anyone with "
-                              "write access can change who owns what."))
+                              f"no CODEOWNERS rule covers {where}, {consequence}"))
         else:
             out.extend(_judge_owners(rule, eligible, prot, where))
     errors = prot.codeowners_errors
@@ -562,14 +608,25 @@ def _codeowners_reasons(name: str, action, eligible: set[str],
         for err in errors:
             line = err.get("line")
             rule = by_line.get(line)
-            relevant = rule is None or rule.nfa is None or any(
-                _safe_overlap(p, rule) for p in action.github.paths)
+            relevant = (rule is None or rule.nfa is None
+                        or any(_safe_overlap(p, rule) for p in action.github.paths)
+                        or any(rule.nfa.matches(p) for p in own_paths or []))
             if relevant:
                 out.append(Reason("incomplete", "codeowners-errors",
                                   f"GitHub reports an error on CODEOWNERS line "
                                   f"{line}: {err.get('message') or err.get('kind') or 'invalid'}"
                                   ". GitHub skips invalid lines."))
     return out
+
+
+def _codeowners_own_paths(path: str | None) -> list[str] | None:
+    """The CODEOWNERS file's path, after every location GitHub reads before it."""
+    if path is None:
+        return None
+    path = path.lstrip("/")
+    earlier = (list(_CODEOWNERS_PATHS[:_CODEOWNERS_PATHS.index(path)])
+               if path in _CODEOWNERS_PATHS else [])
+    return earlier + [path]
 
 
 def _safe_overlap(pattern: str, rule: Rule) -> bool:
@@ -834,9 +891,10 @@ def _read_classic(runner, repo: str, branch: str):
     rc, out, err = runner(["gh", "api", path])
     if rc == 0:
         try:
-            return json.loads(out) if out.strip() else None
+            obj = json.loads(out) if out.strip() else None
         except json.JSONDecodeError:
             return _UNREAD
+        return obj if isinstance(obj, dict) else _UNREAD
     if "branch not protected" in f"{out}\n{err}".lower():
         return None
     return _UNREAD
@@ -853,8 +911,15 @@ def _fetch_codeowners(runner, repo: str, branch: str):
                       allow_404=True)
         if obj is _UNREAD:
             return None, _UNREAD
-        if obj and obj.get("encoding") == "base64" and obj.get("content"):
-            return path, base64.b64decode(obj["content"]).decode("utf-8", "replace")
+        if not isinstance(obj, dict) or obj.get("type", "file") != "file":
+            continue  # nothing there (or a directory, which GitHub ignores)
+        # GitHub uses the first location that holds a file, even an empty one.
+        content = obj.get("content") or ""
+        if obj.get("encoding") == "base64":
+            return path, base64.b64decode(content).decode("utf-8", "replace")
+        if not content and obj.get("size") == 0:
+            return path, ""
+        return None, _UNREAD  # e.g. a file over 1 MB ("encoding": "none")
     return None, None
 
 
@@ -874,10 +939,9 @@ def _owner_access(runner, repo: str, text: str):
     for user in users[:_MAX_OWNER_LOOKUPS]:
         obj = _try_gh(runner, f"repos/{repo}/collaborators/{user}/permission",
                       allow_404=True)
-        if obj is _UNREAD:
-            continue  # unknown: verify reports it as incomplete
-        if obj is None:
-            perms[user] = False  # not a collaborator
+        if not isinstance(obj, dict):
+            # Unreadable, or a 404, which GitHub also returns for a user it won't
+            # show: unknown, so verify reports it as incomplete.
             continue
         role = str(obj.get("role_name") or "").lower()
         perms[user] = (str(obj.get("permission") or "").lower() in _WRITE_PERMISSIONS
@@ -887,17 +951,22 @@ def _owner_access(runner, repo: str, text: str):
     for team in team_names[:_MAX_OWNER_LOOKUPS]:
         org, slug = team.split("/", 1)
         facts = TeamFacts()
+        teams[team] = facts
+        # A 404 can mean "a team this token can't see", so the team itself must
+        # be readable before a 404 on its repo access counts as "no access".
+        if not isinstance(_try_gh(runner, f"orgs/{org}/teams/{slug}"), dict):
+            continue
         access = _try_gh(runner, f"orgs/{org}/teams/{slug}/repos/{owner}/{repo_name}",
                          allow_404=True, accept="application/vnd.github.v3.repository+json")
         if access is None:
             facts.write = False
-        elif access is not _UNREAD:
+        elif isinstance(access, dict):
             p = access.get("permissions") or {}
             facts.write = bool(p.get("admin") or p.get("maintain") or p.get("push"))
         members = _try_gh(runner, f"orgs/{org}/teams/{slug}/members?per_page=100")
         if isinstance(members, list) and len(members) < 100:
-            facts.members = [m.get("login", "") for m in members if m.get("login")]
-        teams[team] = facts
+            facts.members = [m["login"] for m in members
+                             if isinstance(m, dict) and m.get("login")]
     return perms, teams
 
 
@@ -909,14 +978,27 @@ def fetch_live_protection(repo: str, branch: str, *, runner=None) -> GitHubProte
     NOT an error: it is evidence (and likely drift). Supporting evidence that
     can't be read stays None and makes the affected actions incomplete.
     """
-    runner = runner or _default_runner
+    try:
+        return _fetch_live(repo, branch, runner or _default_runner)
+    except CouldNotCheck:
+        raise
+    except Exception as exc:  # noqa: BLE001 - an API shape we didn't expect
+        raise CouldNotCheck(f"unexpected response from GitHub for {repo}: "
+                            f"{type(exc).__name__}: {exc}") from exc
+
+
+def _fetch_live(repo: str, branch: str, runner) -> GitHubProtection:
     # repos/{repo} first: a 404/403 here is a real "couldn't check" (bad repo or
     # no access), not the benign "no protection configured" 404 below.
     repo_obj = _gh_api(runner, f"repos/{repo}")
+    if not isinstance(repo_obj, dict):
+        raise CouldNotCheck(f"unexpected response from GitHub for {repo}.")
     protection = _read_classic(runner, repo, branch)
-    rules = _try_gh(runner, f"repos/{repo}/rules/branches/{branch}")
+    rules = _try_gh(runner, f"repos/{repo}/rules/branches/{branch}?per_page=100")
     if rules is None:
         rules = []
+    elif not isinstance(rules, list) or len(rules) >= 100:
+        rules = _UNREAD  # unexpected shape, or more rules than one page shows
     path, codeowners = _fetch_codeowners(runner, repo, branch)
     found: bool | None = codeowners is not None
     if codeowners is _UNREAD:
@@ -1015,6 +1097,8 @@ def sweep_status(results: list[RepoResult], truncated: bool) -> str:
     statuses = {r.status for r in results}
     if "drift" in statuses:
         return "drift"
+    if statuses == {"could-not-check"}:
+        return "could-not-check"  # no repo could be read at all
     if truncated or statuses & {"incomplete", "could-not-check"}:
         return "incomplete"
     if "verified" in statuses:

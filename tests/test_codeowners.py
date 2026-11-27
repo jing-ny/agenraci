@@ -3,11 +3,13 @@
 import pytest
 
 from agenraci.codeowners import (
+    TooComplex,
     UnsupportedPattern,
     compile_pattern,
     find_example,
     last_match,
     parse_rules,
+    winning_rules,
 )
 
 
@@ -44,6 +46,17 @@ from agenraci.codeowners import (
     ("**", "a/b", True),
     ("?.md", "a.md", True),
     ("?.md", "ab.md", False),
+    # Repeated "**" collapses ("**/**" is "**"), and a trailing "/" after "**"
+    # still means "inside a directory" (review of #88).
+    ("**/**", "a/b", True),
+    ("a/**/**", "a/b", True),
+    ("a/**/**", "a", False),
+    ("docs/**/**", "docs/a", True),
+    ("**/**/x", "a/b/x", True),
+    ("**/", "README.md", False),
+    ("**/", "a/b", True),
+    ("a/**/", "a/x", False),
+    ("a/**/", "a/x/y", True),
     # Case-sensitive, as on GitHub.
     ("/Docs/", "docs/a", False),
 ])
@@ -97,3 +110,44 @@ def test_find_example_finds_overlaps_and_proves_disjointness():
 def test_find_example_only_returns_well_formed_paths():
     example = find_example([compile_pattern("docs/*")])
     assert example and not example.endswith("/") and "//" not in example
+
+
+def _winners(include, text, targets=None, **kw):
+    rules = [r.nfa for r in parse_rules(text)]
+    return winning_rules(compile_pattern(include), rules, targets, **kw)
+
+
+def test_winning_rules_names_each_rule_that_wins_somewhere():
+    found = _winners("*", "/docs/ @a\n*.md @b\n/docs/x/ @c\n")
+    assert set(found) == {None, 0, 1, 2}
+    assert found[0].startswith("docs/") and found[2].startswith("docs/x/")
+    assert found[1].endswith(".md")
+    rules = parse_rules("/docs/ @a\n*.md @b\n/docs/x/ @c\n")
+    for k, path in found.items():
+        assert last_match(rules, path) is (None if k is None else rules[k])
+
+
+def test_winning_rules_skips_rules_a_later_rule_always_overrides():
+    found = _winners("src/**", "/src/a/ @a\n* @b\n")
+    assert set(found) == {1}
+
+
+def test_winning_rules_only_looks_for_targets():
+    found = _winners("*", "* @a\n/docs/ @b\n", targets={None, 1})
+    assert set(found) == {1}            # "*" covers everything, so no None
+
+
+def test_winning_rules_keeps_what_it_proved_when_it_gives_up():
+    text = "".join(f"*.e{i} @b\nd{i}/ @b\n" for i in range(30))
+    with pytest.raises(TooComplex) as exc:
+        _winners("*", text, work=3_000)
+    found = exc.value.found
+    rules = parse_rules(text)
+    for k, path in found.items():
+        assert last_match(rules, path) is (None if k is None else rules[k])
+
+
+def test_find_example_stops_early_behind_a_rule_matching_everything():
+    # "*" matches every path, so nothing can escape it; this must not blow up.
+    many = [compile_pattern(f"d{i}/") for i in range(60)]
+    assert find_example([compile_pattern("**")], [*many, compile_pattern("*")]) is None

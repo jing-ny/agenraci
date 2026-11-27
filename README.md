@@ -245,8 +245,8 @@ guarantee could not be established, such as a gate whose approver role has no hu
 member, since GitHub code owners must be people). See the limitations above.
 
 Exit codes: `0` = verified (or nothing to verify), `1` = drift, `2` = incomplete or
-could-not-check. `allow-incomplete: "true"` turns `2` into `0` with a warning; it never
-hides drift.
+could-not-check. `allow-incomplete: "true"` turns an incomplete `2` into `0` with a
+warning; it never hides drift and never passes could-not-check.
 
 **Scope reminder.** The verify Action is read-only. It never POSTs to GitHub
 and never intercepts or enforces actions at runtime. It tells you whether
