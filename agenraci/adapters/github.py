@@ -73,8 +73,9 @@ def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
         out.append(f"#   • Require a pull request before merging, approved by {who}.")
 
         if gate.on_timeout == "block":
-            out.append("#   • Do NOT enable auto-merge "
-                       "(charter on_timeout=block — never proceeds unreviewed).")
+            out.append("#   • On approver timeout, the change waits; it never merges "
+                       "unreviewed (charter on_timeout=block). The required review "
+                       "above enforces this; auto-merge does not bypass it.")
         elif gate.on_timeout == "proceed_if_low_risk":
             out.append("#   • Auto-merge tolerable for this action only "
                        "(charter on_timeout=proceed_if_low_risk; it is marked low-risk).")
@@ -113,8 +114,6 @@ def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
         "restrictions": None,
     }
 
-    has_block_gate = any(a.gate.on_timeout == "block" for a in gated.values())
-
     out.append("")
     out.append("# ── Applyable branch protection (classic) ───────────────────────")
     out.append("# This is GitHub's branch-protection PUT body. AgenRACI does NOT apply")
@@ -130,13 +129,6 @@ def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
         out.append("# Note: no human is accountable for a gated action, so code-owner")
         out.append("# review is left OFF (GitHub code owners must be human — requiring it")
         out.append("# would enforce nothing). Reviews are still required.")
-    if has_block_gate:
-        out.append("#")
-        out.append("# A gated action declares on_timeout=block, so it must never proceed")
-        out.append("# unreviewed. Auto-merge is a REPO setting (not in this PUT body) —")
-        out.append("# turn it off at the repo level:")
-        out.append("#")
-        out.append("#   gh api repos/OWNER/REPO --method PATCH -f allow_auto_merge=false")
     out.append("# --- BEGIN protection.json ---")
     out.extend(json.dumps(protection_body, indent=2).splitlines())
     out.append("# --- END protection.json ---")
@@ -163,7 +155,9 @@ def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
 # Comparison model (deliberately NOT path globs — the human owns scoping):
 #   • owner-set: accountable HUMANS across gated actions ⊆ live CODEOWNERS owners
 #   • branch-protection facts: ≥1 required review, code-owner review required
-#   • strictest-wins: any gated on_timeout=block ⇒ auto-merge must be off
+#   • auto-merge is NOT a bypass: GitHub auto-merge waits for required reviews
+#     and checks, so allow_auto_merge never produces drift on its own (#81).
+#     The setting is still read, but never cited as evidence either way.
 #   • directionality: the charter is a FLOOR — a stricter repo PASSES (subset/≥)
 #   • agent-only-accountable actions are UNENFORCEABLE (code owners must be human),
 #     reported explicitly so a green result never means "nothing was verified".
@@ -276,15 +270,6 @@ def verify_github(
             branch, "drift",
             "branch protection does not require review from code owners, so the "
             "accountable owners are not actually enforced.",
-        ))
-
-    if protection.allow_auto_merge and any(
-        a.gate.on_timeout == "block" for a in gated.values()
-    ):
-        drift.append(VerifyFinding(
-            branch, "drift",
-            "auto-merge is enabled but a gated action declares on_timeout=block "
-            "(it must never proceed unreviewed).",
         ))
 
     return VerifyReport(

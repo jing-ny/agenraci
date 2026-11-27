@@ -32,8 +32,10 @@ def test_compile_github_emits_codeowners_and_branch_protection():
     # The governance charter gates A5_merge_to_main and A7_publish_release.
     assert "A5_merge_to_main" in out
     assert "A7_publish_release" in out
-    # on_timeout=block must translate to "do not auto-merge".
-    assert "Do NOT enable auto-merge" in out
+    # on_timeout=block keeps its meaning (never merges unreviewed) but no
+    # longer tells the user to disable auto-merge, which is not a bypass (#81).
+    assert "never merges unreviewed" in out
+    assert "Do NOT enable auto-merge" not in out
     # github is real, so it must NOT be labelled a stub.
     assert "STUB" not in out
 
@@ -86,7 +88,8 @@ def test_compile_github_emits_applyable_protection_json():
             for m in charter.members
             if m.role == r and m.type == "human" and (h := m.name)
         }),
-        allow_auto_merge=False,
+        # The round trip no longer needs auto-merge turned off (#81).
+        allow_auto_merge=True,
     ))
     assert report.ok, [f.message for f in report.findings]
 
@@ -106,8 +109,8 @@ def test_compile_github_no_human_accountable_omits_code_owner_review():
     rpr = body["required_pull_request_reviews"]
     assert rpr["required_approving_review_count"] >= 1
     assert rpr["require_code_owner_reviews"] is False
-    # on_timeout=block -> the repo-level auto-merge-off hint must appear.
-    assert "allow_auto_merge=false" in result.stdout
+    # on_timeout=block no longer emits a repo-level auto-merge-off hint (#81).
+    assert "allow_auto_merge" not in result.stdout
 
 
 def test_compile_github_no_gates_emits_no_protection_json(tmp_path, monkeypatch):

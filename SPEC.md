@@ -232,10 +232,8 @@ runtime enforcement.
      agenraci verify CHARTER.yaml --repo OWNER/REPO   # should report CLEAN
      ```
 
-     When any gated action carries `on_timeout: block`, a separate
-     `gh api repos/OWNER/REPO --method PATCH -f allow_auto_merge=false` hint is
-     appended, because auto-merge is a repo-level setting that is not part of the
-     classic branch-protection PUT body.
+     No auto-merge hint is emitted: GitHub auto-merge waits for required reviews
+     and checks, so it does not bypass a blocking gate (#81).
 
   **Scope:** AgenRACI prints the JSON and the `gh api` command; the human runs them.
   AgenRACI never POSTs, PUTs, or applies anything to GitHub.
@@ -276,8 +274,8 @@ stub targets `(STUB)` in their output.
   repo). It compares the accountable *humans* of gated actions against the
   branch's CODEOWNERS owners (subset: the charter is a *floor*, so a stricter
   repo passes) plus branch-protection facts (a review is required, code-owner
-  review is required, and auto-merge is off when a gated action's `on_timeout`
-  is `block`). A gated action whose accountable role has no human member is
+  review is required). Enabled auto-merge is not drift: GitHub auto-merge waits for
+  required reviews and checks (#81). A gated action whose accountable role has no human member is
   reported as `unenforceable` (GitHub code owners must be human) rather than
   silently passing. Exit codes: `0` clean, `1` drift, `2` could-not-check (bad
   input). The branch settings come either live via `gh api` (`--repo

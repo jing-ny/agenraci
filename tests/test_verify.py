@@ -136,15 +136,28 @@ def test_verify_drift_no_code_owner_review(tmp_path):
                for f in report.findings)
 
 
-def test_verify_drift_auto_merge_with_block(tmp_path):
+def test_verify_auto_merge_alone_is_not_drift(tmp_path):
+    """#81: GitHub auto-merge waits for required reviews, so it is not a bypass."""
+    charter = load_charter(_charter(tmp_path, _HUMAN_GATED))  # on_timeout=block
+    base = dict(branch="main", required_reviews=1, require_code_owner_review=True,
+                code_owners=["alice"])
+    off = verify_github(charter, GitHubProtection(**base, allow_auto_merge=False))
+    on = verify_github(charter, GitHubProtection(**base, allow_auto_merge=True))
+    assert off.ok is True and on.ok is True
+    assert on.findings == off.findings == []
+    assert not any("auto-merge" in f.message for f in on.findings + on.unenforceable)
+
+
+def test_verify_missing_reviews_is_drift_even_with_auto_merge(tmp_path):
+    """#81: dropping the auto-merge check must not hide a missing review."""
     charter = load_charter(_charter(tmp_path, _HUMAN_GATED))  # on_timeout=block
     prot = GitHubProtection(
-        branch="main", required_reviews=1, require_code_owner_review=True,
+        branch="main", required_reviews=0, require_code_owner_review=True,
         code_owners=["alice"], allow_auto_merge=True,
     )
     report = verify_github(charter, prot)
     assert report.ok is False
-    assert any("auto-merge is enabled" in f.message for f in report.findings)
+    assert any("requires no approving review" in f.message for f in report.findings)
 
 
 def test_verify_agent_only_is_unenforceable_not_drift(tmp_path):

@@ -98,7 +98,7 @@ charter-level twin of a LangGraph `interrupt()` or a HumanLayer approval step.
     capabilities: [merge]
     gate:
       approver: reviewer
-      on_timeout: block              # never auto-merge; the opposite would need
+      on_timeout: block              # never proceeds unapproved; the opposite would need
                                      # the action marked low-risk (rule R5)
       break_glass: { who: orchestrator, condition: maintainer_override, requires_after_review: true }
 ```

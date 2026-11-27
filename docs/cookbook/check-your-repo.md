@@ -13,10 +13,13 @@
 **Known limitations:** the current verifier reduces CODEOWNERS to owner names without
 checking path precedence or the designated approver. It does not model bypass permissions.
 `CLEAN` means these limited comparisons found no drift, not that all charter gates are
-enforced. It also treats enabled auto-merge as drift for blocking gates, although GitHub
-auto-merge waits for required reviews and checks. Output below reflects current behavior,
-including that known limitation. See the [correction plan](../../PLAN.md); fixes have
-not yet shipped.
+enforced. Output below reflects current behavior, including those known limitations. See
+the [correction plan](../../PLAN.md); those fixes have not yet shipped.
+
+Auto-merge is not a bypass: GitHub auto-merge waits for required reviews and checks, so
+verify no longer reports enabled auto-merge as drift, and compile no longer tells you to
+turn it off ([#81](https://github.com/jing-ny/agenraci/issues/81)). Auto-merge being off
+is not evidence of enforcement either; the required review is.
 
 The full loop has three steps: compile (charter → GitHub config), apply (human runs
 the `gh api` commands), verify (AgenRACI reads the live repo and reports drift).
@@ -97,9 +100,9 @@ sprout example:
 # In Settings → Branches → Add branch protection rule, for each action:
 # A5_merge_to_main
 #   • Require a pull request before merging, approved by role 'reviewer' (no human members — assign one).
-#   • Do NOT enable auto-merge (charter on_timeout=block — never proceeds unreviewed).
+#   • On approver timeout, the change waits; it never merges unreviewed (charter on_timeout=block). The required review above enforces this; auto-merge does not bypass it.
 #   • Break-glass: 'engineer' may override when sev1_incident (after-the-fact review required).
-# ...(A7_incident_fix, A8_interpret_analytics, A9_communicate_with_users, A10_spend_money follow, each with its own approver/auto-merge/break-glass lines)...
+# ...(A7_incident_fix, A8_interpret_analytics, A9_communicate_with_users, A10_spend_money follow, each with its own approver/timeout/break-glass lines)...
 
 # ── Applyable branch protection (classic) ───────────────────────
 # This is GitHub's branch-protection PUT body. AgenRACI does NOT apply
@@ -107,7 +110,6 @@ sprout example:
 #   gh api repos/OWNER/REPO/branches/BRANCH/protection \
 #     --method PUT --input protection.json
 #   agenraci verify CHARTER.yaml --repo OWNER/REPO   # should report CLEAN
-#   gh api repos/OWNER/REPO --method PATCH -f allow_auto_merge=false
 # --- BEGIN protection.json ---
 {
   "required_status_checks": null,
@@ -130,7 +132,7 @@ actually accountable for before committing this file. The `@dev` and `@you` hand
 come directly from the `members` list in `examples/sprout/charter.yaml`.
 
 **Branch protection checklist** — one block per gated action. Each block notes the
-approver role, whether auto-merge is forbidden (`on_timeout: block`), and the
+approver role, what happens when the approver does not answer (`on_timeout`), and the
 break-glass condition. The A5_merge_to_main block flags that the accountable role
 `reviewer` has no human members in sprout — only the agent `vera`. GitHub code owners
 must be human; compile surfaces that for you to resolve before applying.
@@ -174,21 +176,7 @@ succeeds, GitHub's branch protection for `main` now requires a pull request with
 code-owner review before merging, and `enforce_admins` is true so the rule applies
 even to repo admins.
 
-**3c. Current checker workaround: auto-merge.**
-This is a limitation of the current checker, not a GitHub requirement for blocking
-approval. Do not disable useful auto-merge solely to claim stronger protection.
-The following reproduces the current compiler guidance pending [#81](https://github.com/jing-ny/agenraci/issues/81).
- Branch protection alone does not
-disable the repo-level auto-merge setting. Run the second command compile printed:
-
-```bash
-gh api repos/OWNER/REPO --method PATCH -f allow_auto_merge=false
-```
-
-This matches the charter's `on_timeout: block` intent on A5_merge_to_main (and
-other blocking gates).
-
-**Admin caveat.** Steps 3b and 3c require admin permission on the repo. If you are
+**Admin caveat.** Step 3b requires admin permission on the repo. If you are
 applying this to an organization repo, use a PAT with `repo` scope and set
 `GH_TOKEN` before running the commands.
 
