@@ -1,10 +1,9 @@
-# GitHub verification contract (draft)
+# GitHub verification contract
 
-Status: **draft for maintainer review** (issue #78). Nothing here is implemented yet.
-Today's `agenraci verify --target github` behaves as described in
+Status: **accepted by the maintainer, not yet implemented** (issue #78). Revised after an
+independent review. Today's `agenraci verify --target github` behaves as described in
 [SPEC.md §8](../SPEC.md#8-adapters); this document defines what it *should* claim once
-#79, #80 and #81 land. Sections marked **Decision** need a maintainer call before
-implementation starts.
+#79, #80 and #81 land. The decisions in §9 are settled; implementation follows them.
 
 ## 1. The question verify answers
 
@@ -23,11 +22,11 @@ deployment or spending behaviour.
 | --- | --- | --- |
 | Accountable owner | The humans in the action's `accountable` role. They own the outcome. | charter `actions.<a>.accountable` + `members` |
 | Designated approver | The humans in the gate's `approver` role. Their approval is what the gate requires. | charter `actions.<a>.gate.approver` + `members` |
-| Eligible approvers | The set whose approval satisfies the gate (see Decision D1). | derived |
+| Eligible approvers | The designated approvers (D1). Accountable owners are not eligible unless they are also in the approver role. | derived |
 | Break-glass holders | The humans in the gate's `break_glass.who` role. | charter `gate.break_glass` |
-| Scope | The repository paths whose changes the action covers. | charter (new field, see Decision D3) |
+| GitHub mapping | A new optional per-action field: `github: {paths: [<CODEOWNERS-style patterns>]}` to judge the action over those paths, or `github: none` to say the action is not a GitHub change (D3). | charter (new field) |
 | Identity evidence | The link between a charter member and a GitHub account. | member `name`, or a new optional `github` handle |
-| Observed controls | What GitHub enforces on the branch: required reviews, code-owner review, the CODEOWNERS rule that applies to each path, and who can bypass. | classic branch protection, rulesets, CODEOWNERS, repo settings |
+| Observed controls | What GitHub enforces on the branch: required reviews, code-owner review, stale-review dismissal, the CODEOWNERS rule that applies to each path, owner write access, and who can bypass. | classic branch protection, rulesets, CODEOWNERS, repo settings |
 
 A charter identity is not proof of a GitHub identity or of its permissions. Verify
 treats a member name (or its `github` handle) as a GitHub login by convention and
@@ -35,41 +34,64 @@ says so in its output.
 
 ## 3. Result for one action
 
-Each in-scope gated action gets exactly one status.
+Each gated action gets exactly one status.
 
 | Status | Meaning |
 | --- | --- |
 | `verified` | Every control the action needs was observed, and nothing observed lets an ineligible person approve or skip approval. |
 | `drift` | Observed configuration contradicts the charter: approval is not required, or someone ineligible can satisfy or skip it. |
 | `incomplete` | Verify could not establish the guarantee: evidence is missing, unreadable, or outside what AgenRACI models. Never a pass. |
-| `not-applicable` | The action has no GitHub mapping (for example a deploy, spending or runtime gate). Listed, never counted as verified. |
+| `not-applicable` | The action declares `github: none`. Listed, never counted as verified. |
+
+A gated action with **no** `github` key is `incomplete` with reason
+`no-github-mapping`. Verify cannot tell whether a deploy, release or spending gate is
+meant to be a GitHub change, so it never gives such an action an implied
+branch-protection guarantee. The output suggests adding `github.paths` or
+`github: none`.
 
 Precedence when several facts apply to one action: `drift` beats `incomplete` beats
 `verified`. A contradiction is reported even if other evidence is missing.
 
 ### What `verified` requires
 
-All of these, for every path in the action's scope:
+All of these, for every path in the action's `github.paths`:
 
 1. The branch requires at least one approving review (classic protection or a
    ruleset; the union of both is used, as today).
 2. The branch requires code-owner review.
-3. The CODEOWNERS rule that applies to the path is the **last matching** rule, and it
+3. The branch dismisses stale approvals when new commits are pushed (classic
+   `dismiss_stale_reviews`, ruleset `dismiss_stale_reviews_on_push`). Without it, commits
+   pushed after an eligible approval can merge unreviewed, so it is `drift`.
+   `require_last_push_approval` is recorded in the output but not required.
+4. The CODEOWNERS rule that applies to the path is the **last matching** rule, and it
    lists at least one owner.
-4. **Every** owner listed on that rule is an eligible approver. GitHub accepts approval
+5. **Every** owner listed on that rule is an eligible approver. GitHub accepts approval
    from any one listed owner, so one ineligible co-owner breaks the guarantee. More
    owners never means stronger protection.
-5. Every listed owner resolves to an individual human login. A team or email owner is
+6. Every listed owner resolves to an individual human login. A team or email owner is
    `incomplete` unless its members can be read and all are eligible.
-6. Bypass evidence was read and shows no one outside the allowed set can skip the
+7. Every listed owner has write access (`repos/{repo}/collaborators/{user}/permission`).
+   GitHub ignores an owner without write access, which can leave the path with no
+   effective owner (`drift`). Access that could not be read is `incomplete`.
+8. GitHub reports no CODEOWNERS errors on a rule that applies to an in-scope path
+   (`repos/{repo}/codeowners/errors`). GitHub skips invalid lines, so an error there is
+   `incomplete`, as is an error list that could not be read.
+9. Bypass evidence was read and shows no one outside the allowed set can skip the
    requirement (see §4).
+
+The top-level status is the worst action status by the precedence above, ignoring
+`not-applicable`. If no action is judged (no gated actions, or every gated action is
+`not-applicable`), the top-level status is `nothing-to-verify` and the output says
+that nothing was verified.
 
 ### Auto-merge
 
 Auto-merge is **not** a bypass. GitHub's auto-merge waits for required reviews and
 checks. With sufficient review settings, `allow_auto_merge` alone never produces
 drift (#81). Missing required reviews are still drift whether or not auto-merge is on.
-Verify also never cites auto-merge being off as evidence of enforcement.
+Verify also never cites auto-merge being off as evidence of enforcement. The
+`compile --target github` checklist line "Do NOT enable auto-merge" and the
+`allow_auto_merge=false` hint are removed in the same change (#81).
 
 ## 4. Bypass evidence
 
@@ -77,17 +99,22 @@ A requirement that someone can skip is not a requirement for that person. Verify
 reads, where the token allows:
 
 - classic protection `enforce_admins` (off means repository admins can merge without
-  the review);
-- classic `required_pull_request_reviews.bypass_pull_request_allowances` (users,
-  teams, apps);
+  the review) and `required_pull_request_reviews.bypass_pull_request_allowances`
+  (users, teams, apps). Reading classic protection needs admin access;
 - ruleset `bypass_actors` (organization admins, repository roles, teams, apps, deploy
-  keys) on every ruleset that targets the branch.
+  keys) on every ruleset that targets the branch. `rules/branches/{branch}` does not
+  return bypass actors, so verify lists rulesets with
+  `repos/{repo}/rulesets?includes_parents=true` and reads each one with
+  `repos/{repo}/rulesets/{id}`, or `orgs/{org}/rulesets/{id}` for an org ruleset, which
+  may need org admin. GitHub may omit `bypass_actors` for a token that cannot edit the
+  ruleset; an omitted list counts as unread.
 
 | Observed | Status |
 | --- | --- |
-| No bypass actors, admins enforced | contributes to `verified` |
-| A bypass actor who is a break-glass holder | `verified`, with the bypass listed (Decision D4) |
-| Any other bypass actor | `drift` |
+| Classic protection: admins enforced, no bypass allowances | contributes to `verified` |
+| Ruleset-only branch: bypass list read and empty (`enforce_admins` does not apply to rulesets; admins bypass only if listed) | contributes to `verified` |
+| A bypass actor who is a break-glass holder | `verified` with a caveat: GitHub enforces neither the charter's break-glass `condition` nor `requires_after_review`, so the holder can bypass at any time (D4) |
+| Any other bypass actor, in either `always` or `pull_request` mode | `drift` |
 | A bypass list that could not be read (common with the default workflow token) | `incomplete` |
 | A role- or team-based bypass whose members could not be resolved | `incomplete` |
 
@@ -97,100 +124,124 @@ reads, where the token allows:
 | --- | --- |
 | Repository itself unreadable (404/401/403 on `repos/{repo}`, no `gh`, network) | `could-not-check` for the whole repo, as today |
 | One control unreadable (for example classic protection 403, ruleset bypass list omitted) | the actions that depend on it are `incomplete`, naming the control |
-| Classic protection 404 | no classic protection (benign), as today |
-| No CODEOWNERS file | `drift` for every in-scope action that needs code-owner review |
-| Offline `--settings` export | each field must be stated; an **absent** field is missing evidence (`incomplete`), not a default of `0`/`false`. New fields: `codeowners` (the raw file text, so precedence can be evaluated), `enforce_admins`, `bypass_actors`. |
+| Classic protection 404 with the message "Branch not protected" (or `branches/{branch}` reports `protected: false`) | no classic protection (benign). Any other 404 on that endpoint is treated as unreadable (`incomplete`), because GitHub can return 404 where it means "not allowed". Today any 404 counts as benign. |
+| No CODEOWNERS file | `drift` for every judged action, since code-owner review then enforces nothing |
+| Offline `--settings` export | each field must be stated; an **absent** field is missing evidence (`incomplete`), not a default of `0`/`false`. New fields: `codeowners` (the raw file text, so precedence can be evaluated), `codeowners_errors`, `dismiss_stale_reviews`, `owner_permissions`, `enforce_admins`, `bypass_actors`. |
 | Snapshot vs live | output always says which one it used; a snapshot is evidence about the moment it was taken |
 
 ## 6. Output and compatibility
 
 ### Exit codes
 
-Today: `0` clean, `1` drift, `2` could-not-check. Proposed:
+Today a single-repo or offline run exits `0` clean, `1` drift, `2` could-not-check.
+Whether a live permission failure becomes `2` depends on `gh`'s error text containing
+"auth", "login", "401", "403" or "forbidden". An `--org` sweep today exits `1` only on
+drift; unreadable repos and a truncated listing still exit `0`.
+
+Proposed, for single-repo, offline and org runs alike:
 
 | Exit | When |
 | --- | --- |
-| `0` | every in-scope action is `verified` (or the charter has no gated actions) |
-| `1` | any action is `drift` |
+| `0` | top-level status is `verified` or `nothing-to-verify` |
+| `1` | any action, or any repo in a sweep, is `drift` |
 | `2` | no drift, but something is `incomplete` or `could-not-check` |
 
-`not-applicable` actions never change the exit code. See Decision D2 for whether
-`incomplete` should exit `2` and whether to offer an opt-out flag.
+`--allow-incomplete` turns exit `2` into `0` and prints a warning; it never hides drift
+(D2). `not-applicable` actions never change the exit code.
 
 ### JSON
 
 Additive for one release, then the old keys are removed:
 
-- New top-level `status` (`verified` / `drift` / `incomplete` / `could-not-check`),
-  `evidence` (`live` or `snapshot`), and an `actions` array with one entry per gated
-  action: `{action, status, scope, eligible_approvers, reasons[]}`.
+- New top-level `status` (`verified` / `drift` / `incomplete` / `could-not-check` /
+  `nothing-to-verify`), `evidence` (`live` or `snapshot`), and an `actions` array with
+  one entry per gated action: `{action, status, paths, eligible_approvers, reasons[]}`.
 - `ok` keeps its current meaning (no drift) for one release, marked deprecated.
 - `findings` keeps drift findings. `unenforceable` is kept as an alias of the
   `incomplete` entries whose reason is `no-human-approver`, marked deprecated.
 
+### Charter schema
+
+The `github` fields are new. `schema.py` uses `extra="forbid"`, so a charter that uses
+them is rejected by AgenRACI 0.2.x and earlier. The release notes must say so, and the
+docs should tell teams to upgrade before adding the fields.
+
 ### GitHub Action
 
-Propagates the exit code unchanged. With the default `GITHUB_TOKEN`, branch protection
-and bypass lists are usually unreadable, so the expected result is exit `2` with the
-unreadable controls named. The docs must say that an admin-scoped `GH_TOKEN` is needed
-for a full result.
+Propagates the exit code unchanged. The Action needs a new `token` input (default
+`${{ github.token }}`) passed through as `GH_TOKEN`, because today `verify/action.yml`
+sets `GH_TOKEN` itself and a caller cannot supply an admin-scoped token. The same
+applies to this repo's own `charter.yml` workflow, whose comment suggests granting a
+token. With the default token, branch protection and bypass lists are usually
+unreadable, so the expected result is exit `2` with the unreadable controls named.
 
 ### Org sweep
 
-Each repo gets one of `verified`, `drift`, `incomplete`, `could-not-check`. The sweep
-exits with the worst repo result using the table above. A truncated listing makes the
-whole sweep `incomplete`. SARIF keeps reporting drift as `error` and adds `incomplete`
-as `warning`.
+Each repo gets one of `verified`, `drift`, `incomplete`, `could-not-check`,
+`nothing-to-verify`. The sweep exits with the worst repo result using the table above.
+A truncated listing makes the sweep at least `incomplete`; truncated plus any drift
+exits `1`. SARIF keeps reporting drift as `error` and adds `incomplete` as `warning`.
 
 ### Versioning
 
-AgenRACI is pre-1.0. The exit-code and JSON changes ship together in the next minor
-release (0.3.0) with a migration note in the release notes.
+AgenRACI is pre-1.0. The exit-code, JSON and schema changes ship together in the next
+minor release (0.3.0) with a migration note in the release notes.
 
 ## 7. Examples
 
-All examples use one gated action `merge_to_main`, a branch requiring one approving
-review with code-owner review on, admins enforced and no bypass actors, unless the row
-says otherwise. Alice is the designated approver; Carol is the accountable owner where
-the row says so; Bob is neither.
+Unless a row says otherwise: one gated action `merge_to_main` with
+`github: {paths: ["*"]}`; **Alice holds both the accountable and the approver role**
+and has write access; the branch requires one approving review, code-owner review and
+stale-review dismissal; admins are enforced, there are no bypass actors, and every
+control is readable. Carol and Bob are humans who hold neither role unless the row
+says so.
 
 | # | Setup | Today | Under this contract |
 | --- | --- | --- | --- |
 | 1 | CODEOWNERS `* @alice` | pass | `verified` |
 | 2 | `* @alice`, then a later `* @bob` (later rule wins) | pass (false pass, #79) | `drift`: the last matching rule names only Bob |
 | 3 | `* @alice @bob` | pass (false pass, #79) | `drift`: Bob can satisfy owner review |
-| 4 | `* @alice`, then `/docs/` with no owner, action scope includes `docs/` | pass | `drift`: no owner on an in-scope path |
-| 5 | Accountable Carol, approver Alice, `* @alice` | drift (Carol missing) | `verified` (under D1 option a) |
-| 6 | Accountable Carol, approver Alice, `* @carol` | pass | `drift` (under D1 option a) |
+| 4 | `* @alice`, then `/docs/` with no owner | pass | `drift`: no owner on an in-scope path |
+| 5 | Accountable Carol, approver Alice, `* @alice` | drift (Carol missing) | `verified` |
+| 6 | Accountable Carol, approver Alice, `* @carol` | pass | `drift`: Carol is not an eligible approver |
 | 7 | `* @alice @org/release`, team members unreadable | pass (team ignored) | `incomplete` |
 | 8 | Accountable and approver roles have only agent members | `unenforceable`, exit 0 | `incomplete` (reason `no-human-approver`) |
-| 9 | Auto-merge on, reviews required, gate `on_timeout: block` | drift (#81) | `verified` |
+| 9 | Auto-merge on, gate `on_timeout: block` | drift (#81) | `verified` |
 | 10 | Required reviews 0, auto-merge on | drift | `drift` |
-| 11 | Ruleset bypass actor: repository admin role, admins not break-glass holders | pass | `drift` |
-| 12 | Ruleset bypass actor is the break-glass holder | pass | `verified`, bypass listed (under D4 option a) |
-| 13 | Live run with default `GITHUB_TOKEN`, protection endpoint 403 | could-not-check, exit 2 | `incomplete`, exit 2, names the control |
+| 11 | Ruleset bypass actor: repository admin role, admins are not break-glass holders | pass | `drift` |
+| 12 | Ruleset bypass actor is the break-glass holder | pass | `verified`, bypass listed with the D4 caveat |
+| 13 | Live run with default `GITHUB_TOKEN`, protection endpoint 403 | could-not-check, exit 2 (if `gh` reports "403") | `incomplete`, exit 2, names the control |
 | 14 | Offline export with no bypass fields | pass | `incomplete` |
-| 15 | A second gated action `deploy_prod` with no GitHub mapping | judged like a merge | `not-applicable` |
+| 15 | A second gated action `deploy_prod` with no `github` key | judged like a merge | `incomplete` (reason `no-github-mapping`) |
+| 16 | `deploy_prod` declares `github: none` | judged like a merge | `not-applicable` |
+| 17 | `* @alice`, Alice lacks write access | pass | `drift`: GitHub ignores Alice, so the path has no effective owner |
+| 18 | Stale-review dismissal off | pass | `drift`: later commits can merge on an earlier approval |
+| 19 | Ruleset-only branch, bypass list read and empty | pass | `verified` |
+
+### This repository's own charter
+
+`governance/charter.yaml` has two gated actions. `A5_merge_to_main` names the
+`reviewer` role as approver, whose only member is an agent, so it is `incomplete`
+(`no-human-approver`). `A7_publish_release` has no `github` key, so it is `incomplete`
+(`no-github-mapping`); publishing to PyPI is not a GitHub branch change, so the right
+fix is `github: none`. With no other changes, this repo's own verify run exits `2`.
+The maintainer's break-glass role (`orchestrator`) would be listed with the D4 caveat
+if it appears as a bypass actor.
 
 ## 8. Out of scope
 
 Runtime interception, deployment and spending enforcement, per-pull-request review
-history, GitLab, automatic remediation, and a GitHub App. Owners who lack write access
-are a known gap: GitHub ignores them as code owners, and verify does not yet read
-collaborator permissions. Until it does, the output notes this limitation.
+history, GitLab, automatic remediation, and a GitHub App.
 
-## 9. Decisions for the maintainer
+## 9. Decisions (settled by the maintainer)
 
-- **D1 — Who must approve.** (a) the designated approver only (`gate.approver`), which
-  matches what a gate means; (b) the accountable owner only, which is today's
-  behaviour; (c) either, the union. Draft assumes (a).
-- **D2 — Exit code for `incomplete`.** (a) exit `2`, with an `--allow-incomplete` flag
-  that exits `0` instead; (b) exit `0` with a warning, which keeps today's green CI but
-  can look like a guarantee; (c) a new exit code `3`. Draft assumes (a).
-- **D3 — Which actions verify judges, and over which paths.** (a) a new optional
-  per-action field `github: {paths: [...]}`; actions without it are `not-applicable`,
-  except that a charter with no mapping at all falls back to today's "every gated
-  action covers `*`" for one release, with a warning; (b) require the mapping
-  immediately; (c) keep judging every gated action over `*`. Draft assumes (a).
-- **D4 — Break-glass bypass.** (a) a bypass actor who holds the gate's break-glass role
-  is allowed and listed; (b) any bypass actor is drift. Draft assumes (a).
+- **D1 — Who must approve:** the designated approver only (`gate.approver`).
+- **D2 — Exit code for `incomplete`:** `2`, with `--allow-incomplete` to exit `0`
+  instead.
+- **D3 — Which actions verify judges:** actions with `github.paths`. An action with
+  `github: none` is `not-applicable`. An action with no `github` key is `incomplete`.
+  The first draft fell back to judging unmapped actions over `*`; the review showed
+  that gives deploy, release and spending gates an implied branch-protection guarantee,
+  so the fallback was dropped.
+- **D4 — Break-glass bypass:** a bypass actor who holds the gate's break-glass role is
+  allowed, listed, and flagged with the caveat in §4.
