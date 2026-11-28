@@ -77,6 +77,7 @@ actions:
       approver: reviewer
       on_timeout: block
       break_glass: { who: engineer, condition: sev1_incident, requires_after_review: true }
+    github: { paths: ["*"] }          # every merge to main, whatever it touches
 
   A6_deploy:
     responsible: engineer
@@ -103,6 +104,7 @@ actions:
       approver: engineer
       on_timeout: block
       break_glass: { who: engineer, condition: sev1_incident, requires_after_review: true }
+    github: { paths: ["/ops/"] }      # incident fixes land in the ops/ tree
 
   A8_interpret_analytics:
     responsible: monitor              # Pulse watches & flags...
@@ -115,6 +117,7 @@ actions:
       approver: orchestrator
       on_timeout: proceed_if_low_risk # legal ONLY because low_risk: true (R5)
       break_glass: { who: orchestrator, condition: metric_alarm, requires_after_review: false }
+    github: none                      # not a repo change
 
   A9_communicate_with_users:
     responsible: orchestrator         # an agent may DRAFT, but a human is accountable
@@ -125,6 +128,7 @@ actions:
       approver: orchestrator
       on_timeout: block               # never auto-proceeds: not low_risk
       break_glass: { who: orchestrator, condition: urgent_outage_notice, requires_after_review: true }
+    github: none                      # not a repo change
 
   A10_spend_money:
     responsible: any                  # anyone may REQUEST a spend...
@@ -135,3 +139,4 @@ actions:
       approver: orchestrator
       on_timeout: block               # never auto-proceeds: not low_risk
       break_glass: { who: orchestrator, condition: billing_outage, requires_after_review: true }
+    github: none                      # not a repo change

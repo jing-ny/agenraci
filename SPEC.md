@@ -107,7 +107,8 @@ project: <string>
 roles: [<role-name>, ...]            # the role library (declared inline in v0.1)
 
 members:
-  - { name: <string>, type: human|agent, role: <role-name>, model: <optional> }
+  - { name: <string>, type: human|agent, role: <role-name>, model: <optional>,
+      github: <optional GitHub login, if it differs from name> }
 
 capabilities:                        # per role; a role may be omitted (no caps)
   <role-name>: { grant: [<cap>, ...], deny: [<cap>, ...] }
@@ -128,7 +129,13 @@ actions:
       from: <role-name>
       to:   <role-name>
       as:   <string>
+    github:                          # optional; what `verify --target github` judges
+      paths: [<CODEOWNERS pattern>, ...]   # or `github: none` (not a repo change)
 ```
+
+`github.paths` uses CODEOWNERS pattern syntax; `!` negation, `[ ]` ranges and `\`
+escapes are rejected, as GitHub does not support them. See
+[docs/verification-contract.md](docs/verification-contract.md) for how verify uses it.
 
 > **Modelling note.** `Role` is a standalone object so a future version can load
 > a shared role library from a separate file without a schema rewrite. For v0.1
@@ -146,7 +153,9 @@ will reject a charter that:
   `accountable`, `consulted`, `informed`, `gate.approver`,
   `gate.on_timeout: escalate_to:<role>`, `suggestion_route.from/to`,
 - attaches a `capabilities` block to an undeclared role,
-- uses an `on_timeout` value that is not one of the three legal forms.
+- uses an `on_timeout` value that is not one of the three legal forms,
+- gives a `github.paths` pattern GitHub's CODEOWNERS syntax does not support, or a
+  member `github` handle that is not a single login.
 
 Capability *references* in actions are intentionally **not** checked here —
 that's R2's job, so the linter can report dead/undeclared capabilities with a
@@ -204,38 +213,41 @@ runtime enforcement.
   Members' `model:` ids map onto Claude Code's model tokens when unambiguous.
 - `github` — **real**. Emits three things in one pass:
 
-  1. **CODEOWNERS scaffold** — one line per human member who is accountable for a
-     gated action. Because a charter governs action *types* not file paths, the
-     glob is `*` by default and must be scoped by the team. A gate whose accountable
-     role has no human member is flagged (GitHub code owners must be human).
+  1. **CODEOWNERS scaffold** — for each gated action with `github.paths`, one rule
+     per pattern owned by that action's human *approvers*, in charter order, then a
+     last rule giving `/.github/CODEOWNERS` to the people who approve every mapped
+     action. A gated action with no `github` key gets a note asking for a mapping;
+     one whose approver role has no human member is flagged (GitHub code owners must
+     be people) and gets no rule; `github: none` actions are skipped. When two
+     actions with different approvers cover the same files, a note says so, since
+     GitHub applies only the later rule there.
 
   2. **Branch-protection checklist** — a commented, human-readable summary of each
-     gated action: required approver, whether timeout may auto-proceed (low-risk
-     only), and the break-glass condition.
+     gated action that maps to GitHub: required approver, whether timeout may
+     auto-proceed (low-risk only), and the break-glass condition.
 
   3. **Applyable branch-protection JSON** — the real GitHub classic branch-protection
      PUT body, delimited by `# --- BEGIN protection.json ---` and
      `# --- END protection.json ---`. Fields emitted: `required_status_checks`,
      `enforce_admins`, `required_pull_request_reviews` (with
-     `required_approving_review_count` and `require_code_owner_reviews`), and
-     `restrictions`. Values are the charter floor: `required_approving_review_count`
-     is always `1`; `require_code_owner_reviews` is `true` only when a human is
-     accountable for at least one gated action (set to `false` with a note when
-     all accountable roles are agent-only, because GitHub code owners must be human
-     and reviews are still required). Immediately below the JSON, the output
+     `required_approving_review_count`, `require_code_owner_reviews` and
+     `dismiss_stale_reviews`), and `restrictions`. Values are the charter floor:
+     `required_approving_review_count` is always `1`; `dismiss_stale_reviews` is
+     always `true` (otherwise commits pushed after an approval merge on it);
+     `require_code_owner_reviews` is `true` only when a gated action that is not
+     `github: none` has a human approver (set to `false` with a note otherwise,
+     because GitHub code owners must be human and reviews are still required). Immediately below the JSON, the output
      includes a ready-to-run `gh api` apply command and an `agenraci verify`
      round-trip step:
 
      ```
      gh api repos/OWNER/REPO/branches/BRANCH/protection \
        --method PUT --input protection.json
-     agenraci verify CHARTER.yaml --repo OWNER/REPO   # should report CLEAN
+     agenraci verify CHARTER.yaml --repo OWNER/REPO   # should report no drift
      ```
 
-     When any gated action carries `on_timeout: block`, a separate
-     `gh api repos/OWNER/REPO --method PATCH -f allow_auto_merge=false` hint is
-     appended, because auto-merge is a repo-level setting that is not part of the
-     classic branch-protection PUT body.
+     No auto-merge hint is emitted: GitHub auto-merge waits for required reviews
+     and checks, so it does not bypass a blocking gate (#81).
 
   **Scope:** AgenRACI prints the JSON and the `gh api` command; the human runs them.
   AgenRACI never POSTs, PUTs, or applies anything to GitHub.
@@ -273,38 +285,64 @@ stub targets `(STUB)` in their output.
   unchanged.
 - `agenraci verify --target github` checks that a branch's protection actually
   enforces what the charter declares (read-only — AgenRACI never changes the
-  repo). It compares the accountable *humans* of gated actions against the
-  branch's CODEOWNERS owners (subset: the charter is a *floor*, so a stricter
-  repo passes) plus branch-protection facts (a review is required, code-owner
-  review is required, and auto-merge is off when a gated action's `on_timeout`
-  is `block`). A gated action whose accountable role has no human member is
-  reported as `unenforceable` (GitHub code owners must be human) rather than
-  silently passing. Exit codes: `0` clean, `1` drift, `2` could-not-check (bad
-  input). The branch settings come either live via `gh api` (`--repo
-  OWNER/REPO`, reading and unioning GitHub's classic branch-protection and
-  ruleset shapes) or from an offline export (`--settings <json>`). A 404 on the
-  branch-protection endpoint means "no classic protection" (benign); a repo-level
-  404/401/403 or a missing `gh` is could-not-check, never drift.
+  repo), as defined in [docs/verification-contract.md](docs/verification-contract.md).
+  For each gated action it asks whether a change in the action's `github.paths` can
+  merge without approval from a human in the gate's `approver` role. It reads
+  CODEOWNERS the way GitHub does (the last matching rule applies, any one owner on it
+  can approve, owners without write access are ignored, teams count by their
+  members) and judges every path the patterns can match, including files a pull
+  request could add, by an exact search over the patterns; it does not list the
+  branch's files. It also requires one approving review, code-owner review and
+  stale-review dismissal on the branch, checks GitHub's CODEOWNERS error list, and
+  checks who owns the CODEOWNERS file itself (and each location GitHub would read
+  before it, since a file added there would replace it). A CODEOWNERS file too
+  large to search within a fixed budget makes the action `incomplete` (`too-complex`),
+  though any drift already proved is still reported. Each action is `verified`, `drift`,
+  `incomplete` (could not be established: missing or unreadable evidence, an
+  unsupported pattern, an approver role with no human, no `github` key; never a
+  pass) or `not-applicable` (`github: none`); drift beats incomplete beats verified.
+  Bypass permissions are not judged yet (#80): live mode does not read them, so a
+  live run is `incomplete`, and an offline export that lists any bypass is
+  `incomplete`. Enabled auto-merge is not drift: GitHub auto-merge waits for
+  required reviews and checks (#81). Exit codes: `0` verified or nothing to
+  verify, `1` drift, `2` incomplete or could-not-check; `--allow-incomplete`
+  turns an incomplete `2` into `0` with a warning, never hides drift, and never
+  passes could-not-check. `--format json` adds a
+  top-level `status`, `evidence` (`live` or `snapshot`) and per-action results
+  (`ok`, `findings` and `unenforceable` are kept, deprecated); `--format sarif`
+  reports drift as `error` and incomplete as `warning`. The branch settings come
+  either live via `gh api` (`--repo OWNER/REPO`, reading and unioning GitHub's
+  classic branch-protection and ruleset shapes) or from an offline export
+  (`--settings <json>`, in which an absent field is missing evidence, never a
+  default, and a value of the wrong type, such as `"true"` for `true`, stops the
+  run with exit `2`). Only GitHub's "Branch not protected" 404 means "no classic
+  protection"; any other failure to read a control makes the actions that need it
+  `incomplete`. A repo-level 404/401/403 or a missing `gh` is could-not-check,
+  never drift.
   - `--org ORG` sweeps **every repo in an org** (or a user account) against one
     charter (the governance-audit case: "does the whole org enforce our
     accountability rules?"), aggregating into one report. A single repo that
     can't be read is isolated as `could-not-check` so it never crashes the sweep;
-    the overall exit is `1` if **any** repo drifts, `0` otherwise. Exactly one of
+    the sweep's status is the worst repo status, so it exits `1` if **any** repo
+    drifts and `2` if any repo is incomplete or could-not-check. Exactly one of
     `--settings`, `--repo`, or `--org` is required. The sweep is sequential (~4
     `gh api` calls per repo), so large orgs are slow and may hit rate limits (a
     rate-limited repo surfaces as `could-not-check`). The org listing is capped
-    (1000 repos); beyond that the report is flagged `truncated` so a clean
-    verdict is never mistaken for a complete audit.
+    (1000 repos; `--limit N` changes it); beyond that the report is flagged
+    `truncated` and is at least `incomplete`, so it is never mistaken for a
+    complete audit.
 
   A **composite GitHub Action** at `verify/action.yml` wraps this command for
-  CI use (referenced as `jing-ny/agenraci/verify@<ref>`). It accepts four
+  CI use (referenced as `jing-ny/agenraci/verify@<ref>`). It accepts six
   inputs — `charter` (default `charter.yaml`), `repo` (default
-  `${{ github.repository }}`), `branch` (default `main`), and `python-version`
-  (default `"3.12"`) — and propagates the `agenraci verify` exit code directly,
-  so drift fails the CI job. **Auth note:** the default `GITHUB_TOKEN` does not
-  have admin permission on the repo, so a live branch-protection check usually
-  exits 2 (could-not-check) rather than 1 (drift). Callers who need a real
-  drift check must supply an admin-scoped token via `GH_TOKEN`. The Action is
+  `${{ github.repository }}`), `branch` (default `main`), `token` (default
+  `${{ github.token }}`, passed to `gh` as `GH_TOKEN`), `allow-incomplete`
+  (default `"false"`) and `python-version` (default `"3.12"`) — and propagates the
+  `agenraci verify` exit code directly, so drift and an incomplete check fail the
+  CI job. **Auth note:** the default `GITHUB_TOKEN` does not have admin permission
+  on the repo, so it usually cannot read branch protection and the check exits 2
+  (incomplete) rather than 1 (drift). Callers who need a full check must pass an
+  admin-scoped token in `token`. The Action is
   read-only and never modifies the repo or intercepts actions at runtime.
 
 ---

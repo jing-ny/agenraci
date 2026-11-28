@@ -10,16 +10,27 @@
 > and **checks** whether a live repo matches it. It never POSTs or PUTs anything to
 > GitHub and never intercepts actions at runtime. "Verify, don't intercept."
 
-**Known limitations:** the current verifier reduces CODEOWNERS to owner names without
-checking path precedence or the designated approver. It does not model bypass permissions.
-`CLEAN` means these limited comparisons found no drift, not that all charter gates are
-enforced. It also treats enabled auto-merge as drift for blocking gates, although GitHub
-auto-merge waits for required reviews and checks. Output below reflects current behavior,
-including that known limitation. See the [correction plan](../../PLAN.md); fixes have
-not yet shipped.
+**What verify checks:** for each gated action, the question in the
+[verification contract](../verification-contract.md): "can any change in this action's
+paths merge without approval from someone the charter allows to approve it?" It reads
+CODEOWNERS the way GitHub does (the last matching rule wins, any one owner on it can
+approve, owners without write access are ignored) and judges every path an action's
+`github.paths` can match, including files a pull request could add. Each action comes out
+`verified`, `drift`, `incomplete` or `not-applicable`. `incomplete` means a guarantee could
+not be established, and it is never a pass.
+
+**Known limitation:** who can bypass the review requirement (admins, bypass actors) is
+not judged yet ([#80](https://github.com/jing-ny/agenraci/issues/80)). Live verify does
+not read it, so a live run reports `incomplete` until #80 ships. An offline export can
+state it; any bypass that is present is reported as `incomplete`, not judged.
+
+Auto-merge is not a bypass: GitHub auto-merge waits for required reviews and checks, so
+verify does not report enabled auto-merge as drift, and compile does not tell you to turn
+it off ([#81](https://github.com/jing-ny/agenraci/issues/81)). Auto-merge being off is not
+evidence of enforcement either; the required review is what enforces the gate.
 
 The full loop has three steps: compile (charter → GitHub config), apply (human runs
-the `gh api` commands), verify (AgenRACI reads the live repo and reports drift).
+the `gh api` commands), verify (AgenRACI reads the live repo and reports what it found).
 
 ---
 
@@ -31,9 +42,11 @@ pip install agenraci          # the checker + compile + verify
 
 For **live verify** (step 4, `--repo` mode): the `gh` CLI must be installed and on
 `PATH`, and you need admin permission on the repo — a personal access token (PAT)
-with `repo` scope stored as `GH_TOKEN`. Without those, `verify` exits 2
-(could-not-check), not 1 (drift). See the exit-code table in step 4 for what that
-means and why it is not the same as finding a problem.
+with `repo` scope stored as `GH_TOKEN`. Without `gh`, or for a repo the token can't
+see, `verify` exits 2 (could-not-check). A token that can see the repo but lacks admin
+can't read the protection settings, so the actions that depend on them come out
+`incomplete`, also exit 2. Neither is 1 (drift). See the exit-code table in step 4 for
+what that means and why it is not the same as finding a problem.
 
 For **offline verify** (step 4, `--settings` mode): no `gh`, no token, no admin
 needed. Useful in hermetic CI, sandboxes, or when you can't grant admin to the
@@ -71,6 +84,28 @@ If the charter has a gap or conflict, `validate --explain` adds a plain-language
 under each failing rule. Fix those first; the rest of this guide assumes a clean
 charter.
 
+### Tell verify which paths each gated action covers
+
+A charter governs action types, not files, so each gated action says which repo paths it
+covers with a `github` key. Patterns use CODEOWNERS syntax. An action that is not a repo
+change says `github: none`. An action with no `github` key is reported `incomplete`,
+because verify cannot tell what it covers. Sprout's gated actions are mapped like this:
+
+```yaml
+  A5_merge_to_main:
+    # ...
+    github: { paths: ["*"] }          # every merge to main, whatever it touches
+  A7_incident_fix:
+    # ...
+    github: { paths: ["/ops/"] }      # incident fixes land in the ops/ tree
+  A8_interpret_analytics:
+    # ...
+    github: none                      # not a repo change
+```
+
+A9 and A10 are `github: none` too. If a member's GitHub login differs from their charter
+name, add it to the member: `{ name: dev, type: human, role: engineer, github: dev-gh }`.
+
 ---
 
 ## Step 2: compile to see what GitHub config the charter implies
@@ -89,32 +124,42 @@ sprout example:
 # member names to GitHub @handles, and apply it in GitHub yourself.
 
 # ── CODEOWNERS (starting point) ─────────────────────────────────
-# A charter governs action TYPES, not file paths, so scope the glob(s)
-# below to the parts of your repo each owner is accountable for.
-*    @dev @you
+# Each line gives a gated action's paths to its approvers. GitHub uses
+# the LAST rule that matches a file and accepts any one listed owner,
+# so keep the order and list only people allowed to approve.
+# A5_merge_to_main: approver role 'reviewer' has no human members, so GitHub cannot enforce this gate.
+/ops/    @dev
+/.github/CODEOWNERS    @dev
 
 # ── Branch protection (from gated actions) ──────────────────────
 # In Settings → Branches → Add branch protection rule, for each action:
+
 # A5_merge_to_main
 #   • Require a pull request before merging, approved by role 'reviewer' (no human members — assign one).
-#   • Do NOT enable auto-merge (charter on_timeout=block — never proceeds unreviewed).
+#   • On approver timeout, the change waits; it never merges unreviewed (charter on_timeout=block). Branch protection's required review is what makes it wait; auto-merge does not bypass it.
 #   • Break-glass: 'engineer' may override when sev1_incident (after-the-fact review required).
-# ...(A7_incident_fix, A8_interpret_analytics, A9_communicate_with_users, A10_spend_money follow, each with its own approver/auto-merge/break-glass lines)...
+
+# A7_incident_fix
+#   • Require a pull request before merging, approved by @dev.
+#   ...
+
+# A8_interpret_analytics: `github: none`, not a repo change; nothing to configure in GitHub.
+# ...(A9 and A10 are `github: none` too)...
 
 # ── Applyable branch protection (classic) ───────────────────────
 # This is GitHub's branch-protection PUT body. AgenRACI does NOT apply
 # it — you run the command below yourself. Save the JSON to a file ...
 #   gh api repos/OWNER/REPO/branches/BRANCH/protection \
 #     --method PUT --input protection.json
-#   agenraci verify CHARTER.yaml --repo OWNER/REPO   # should report CLEAN
-#   gh api repos/OWNER/REPO --method PATCH -f allow_auto_merge=false
+#   agenraci verify CHARTER.yaml --repo OWNER/REPO   # should report no drift
 # --- BEGIN protection.json ---
 {
   "required_status_checks": null,
   "enforce_admins": true,
   "required_pull_request_reviews": {
     "required_approving_review_count": 1,
-    "require_code_owner_reviews": true
+    "require_code_owner_reviews": true,
+    "dismiss_stale_reviews": true
   },
   "restrictions": null
 }
@@ -123,17 +168,19 @@ sprout example:
 
 ### What each section tells you
 
-**CODEOWNERS** — a starting-point glob that names every human member who holds an
-accountable role on any gated action. The charter governs action types, not file
-paths, so you will almost certainly want to narrow `*` to the paths each owner is
-actually accountable for before committing this file. The `@dev` and `@you` handles
-come directly from the `members` list in `examples/sprout/charter.yaml`.
+**CODEOWNERS** — one rule per mapped path, owned by that action's human approvers, and
+a last rule that gives the CODEOWNERS file itself to people who approve every mapped
+action (otherwise anyone who can edit the file could change who approves). The `@dev`
+handle comes from the `members` list in `examples/sprout/charter.yaml`. If two actions
+with different approvers cover the same files, compile adds a note: GitHub applies only
+the later rule there, so you have to decide who owns those files.
 
-**Branch protection checklist** — one block per gated action. Each block notes the
-approver role, whether auto-merge is forbidden (`on_timeout: block`), and the
-break-glass condition. The A5_merge_to_main block flags that the accountable role
-`reviewer` has no human members in sprout — only the agent `vera`. GitHub code owners
-must be human; compile surfaces that for you to resolve before applying.
+**Branch protection checklist** — one block per gated action that maps to GitHub. Each
+block notes the approver, what happens when the approver does not answer
+(`on_timeout`), and the break-glass condition. The A5_merge_to_main block flags that
+the approver role `reviewer` has no human members in sprout — only the agent `vera`.
+GitHub code owners must be people, so no CODEOWNERS rule can enforce that gate, and
+verify reports it `incomplete`.
 
 **`protection.json`** — this is GitHub's classic branch-protection PUT body,
 delimited by `# --- BEGIN protection.json ---` / `# --- END protection.json ---` so
@@ -157,9 +204,10 @@ agenraci compile --target github examples/sprout/charter.yaml \
 AgenRACI has printed exactly the commands to run. You run them — AgenRACI never
 touches GitHub on your behalf.
 
-**3a. Create or update your CODEOWNERS file.** Copy the `*   @dev @you` line (or a
-scoped version of it) into `.github/CODEOWNERS` or `CODEOWNERS` at the root.
-Commit and push that file.
+**3a. Create or update your CODEOWNERS file.** Copy the rules from the CODEOWNERS
+section into `.github/CODEOWNERS` (or `CODEOWNERS` or `docs/CODEOWNERS`; GitHub uses the
+first it finds in that order). Keep them in order. If your file already has rules, put
+these after any broader rule they must override. Commit and push that file.
 
 **3b. Apply branch protection.** With `protection.json` saved from step 2, and with
 admin permission on the repo:
@@ -171,24 +219,10 @@ gh api repos/OWNER/REPO/branches/main/protection \
 
 Replace `OWNER/REPO` and `main` with your repo and protected branch. If the command
 succeeds, GitHub's branch protection for `main` now requires a pull request with a
-code-owner review before merging, and `enforce_admins` is true so the rule applies
-even to repo admins.
+code-owner review before merging, dismisses an approval when new commits are pushed,
+and `enforce_admins` is true so the rule applies even to repo admins.
 
-**3c. Current checker workaround: auto-merge.**
-This is a limitation of the current checker, not a GitHub requirement for blocking
-approval. Do not disable useful auto-merge solely to claim stronger protection.
-The following reproduces the current compiler guidance pending [#81](https://github.com/jing-ny/agenraci/issues/81).
- Branch protection alone does not
-disable the repo-level auto-merge setting. Run the second command compile printed:
-
-```bash
-gh api repos/OWNER/REPO --method PATCH -f allow_auto_merge=false
-```
-
-This matches the charter's `on_timeout: block` intent on A5_merge_to_main (and
-other blocking gates).
-
-**Admin caveat.** Steps 3b and 3c require admin permission on the repo. If you are
+**Admin caveat.** Step 3b requires admin permission on the repo. If you are
 applying this to an organization repo, use a PAT with `repo` scope and set
 `GH_TOKEN` before running the commands.
 
@@ -201,71 +235,126 @@ AgenRACI offers two modes.
 
 ### Live mode: `--repo OWNER/REPO`
 
-This is the real round-trip. AgenRACI calls `gh api` internally, reads the live
-branch protection and CODEOWNERS, normalizes them, and compares against the charter.
-Use it after applying the protection in step 3, or any time you want to check the
-current state of the live repo.
+This is the real round trip. AgenRACI calls `gh api` internally and reads the branch's
+classic protection and rulesets, the CODEOWNERS file and GitHub's own list of errors in
+it, and each owner's write access (for a team, its members and its access to the repo).
+It never changes anything.
 
 ```bash
 agenraci verify examples/sprout/charter.yaml --repo OWNER/REPO
 ```
 
 Requires: `gh` on PATH, admin permission (`GH_TOKEN` set to a PAT), and the repo to
-exist. Without those, exit 2 (could-not-check) is the result — see the table below.
+exist. Without `gh` or access to the repo, the result is could-not-check; without
+admin, the settings verify can't read leave the affected actions `incomplete`. Both
+exit 2 — see the table below.
+
+Until [#80](https://github.com/jing-ny/agenraci/issues/80) ships, live verify does not
+read who can bypass the review requirement, so every mapped action with a human approver
+comes out `incomplete` with this reason, and the run exits 2:
+
+```text
+      - incomplete: who can bypass the review requirement was not read (bypass evidence lands with #80).
+```
+
+Any drift is still reported, and drift exits 1. Pass `--allow-incomplete` to exit 0 (with
+a warning) when the only problem is evidence verify could not establish. It does not
+cover could-not-check: a run that read nothing at all still exits 2.
 
 ### Offline mode: `--settings export.json`
 
-This mode reads a normalized summary you provide instead of calling `gh api`. It
-runs entirely offline, needs no token, and is the right choice for hermetic CI,
-sandboxes, or when you can't grant admin to the workflow.
+This mode reads a summary you provide instead of calling `gh api`. It runs entirely
+offline, needs no token, and is the right choice for hermetic CI, sandboxes, or when you
+can't grant admin to the workflow. The result is a snapshot: it is evidence about the
+moment the export was made.
 
-The `--settings` input is AgenRACI's own normalized shape — **not** the raw
-`protection.json` PUT body from step 2, which is a different format. The normalized
-shape looks like this:
+The `--settings` input is AgenRACI's own shape — **not** the raw `protection.json` PUT
+body from step 2, which is a different format. It looks like this:
 
 ```json
 {
   "branch": "main",
   "required_reviews": 1,
   "require_code_owner_review": true,
-  "code_owners": ["dev", "you"],
+  "dismiss_stale_reviews": true,
+  "codeowners_path": ".github/CODEOWNERS",
+  "codeowners": "/ops/    @dev\n/.github/CODEOWNERS    @dev\n",
+  "codeowners_errors": [],
+  "owner_permissions": {"dev": "write"},
+  "enforce_admins": true,
+  "bypass_actors": [],
   "allow_auto_merge": false
 }
 ```
 
+Every field is evidence. A field that is missing is reported as missing evidence
+(`incomplete`), never filled in with a default:
+
+- `codeowners` is the CODEOWNERS file's text, or `null` if the repo has none.
+  `codeowners_path` is where it lives. `codeowners_errors` is GitHub's
+  `repos/OWNER/REPO/codeowners/errors` list (an entry needs its `line`; a bare line
+  number works too).
+- `owner_permissions` gives each owner's access: `true`/`false`, or a role such as
+  `"write"`, `"maintain"`, `"admin"`, `"read"`. For a team owner, add
+  `"teams": {"org/team": {"members": ["alice"], "permission": "write"}}`.
+- `enforce_admins` and `bypass_actors` say who can bypass the review. `enforce_admins:
+  null` means the branch has no classic protection. A bypass that is present is reported
+  `incomplete` until #80 judges it.
+- Types are strict. A yes/no field takes JSON `true`/`false` (never `"true"` or `1`),
+  `required_reviews` takes a whole number, and the list fields take lists. A value of
+  the wrong type makes verify stop with "could not read settings" (exit 2) rather than
+  guess. An owner whose permission is `null` is treated as unknown (`incomplete`).
+
+An older export that lists only owner names (`"code_owners": ["dev", "you"]`) can no
+longer pass: without the CODEOWNERS text, verify cannot tell which rule owns which path.
+
 Do not feed `protection.json` (GitHub's PUT body) into `--settings`. That file is
 for `gh api --input`; this file is for `agenraci verify --settings`.
 
-### Scenario 1 — clean (offline), exit 0
+### Scenario 1 — a snapshot of the applied setup, exit 2
 
-Create `clean.json` with the normalized shape above (branch `main`, one required
-review, code-owner review required, owners `dev` and `you`, auto-merge false):
+Save the shape above as `snapshot.json`:
 
 ```bash
-agenraci verify examples/sprout/charter.yaml --settings clean.json
+agenraci verify examples/sprout/charter.yaml --settings snapshot.json
 ```
 
 Output:
 
 ```text
-AgenRACI verify (github): sprout  (branch main, settings clean.json)
-  - unenforceable A5_merge_to_main: accountable role(s) reviewer have no human members; GitHub code owners must be human, so this action can't be enforced via CODEOWNERS.
+AgenRACI verify (github): sprout  (branch main, settings snapshot.json, snapshot: evidence about when it was exported)
+  ~ incomplete A5_merge_to_main
+      - incomplete: the approver role 'reviewer' has no human members; GitHub code owners must be people, so GitHub cannot enforce this gate.
+  ✓ verified A7_incident_fix
+  - not-applicable A8_interpret_analytics (github: none)
+  - not-applicable A9_communicate_with_users (github: none)
+  - not-applicable A10_spend_money (github: none)
+Member names (or their `github` handles) are taken as GitHub logins by convention.
 
-OK — the branch enforces what the charter declares (1 action(s) unenforceable, see above).
+INCOMPLETE — the guarantee could not be established for 1 action(s); this is not a pass.
 ```
 
-Exit code: **0**.
+Exit code: **2**.
 
-The `unenforceable` note is not a failure. A5_merge_to_main is accountable to the
-agent role `reviewer` (member `vera`), and GitHub code owners must be human — so
-that particular gate cannot be enforced through CODEOWNERS regardless of what you
-apply. AgenRACI surfaces it so you know; it does not count as drift. **Green never
-means "nothing to check."**
+A7_incident_fix is verified: every path under `ops/` is owned by `@dev`, who can approve
+it, and the branch requires that review. A5_merge_to_main is incomplete: its approver
+role `reviewer` holds only the agent `vera`, and GitHub code owners must be people, so
+nothing in GitHub can enforce that gate. Assign a human to `reviewer`, or accept the gap
+knowingly with `--allow-incomplete`:
+
+```text
+INCOMPLETE — the guarantee could not be established for 1 action(s); this is not a pass.
+warning: --allow-incomplete set; exiting 0 although verification is incomplete.
+```
+
+**Green never means "nothing to check."** A run with no gated action that maps to
+GitHub says `NOTHING TO VERIFY`, not `VERIFIED`.
 
 ### Scenario 2 — drift (offline), exit 1
 
-Create `drift.json` with the same shape, but drop `you` from `code_owners` and set
-`require_code_owner_review` to `false`:
+Create `drift.json` from the same export, but add `@you` to the `/ops/` rule
+(`"codeowners": "/ops/    @dev @you\n/.github/CODEOWNERS    @dev\n"`, with `"you": "admin"`
+in `owner_permissions`) and set `dismiss_stale_reviews` to `false`:
 
 ```bash
 agenraci verify examples/sprout/charter.yaml --settings drift.json
@@ -274,20 +363,28 @@ agenraci verify examples/sprout/charter.yaml --settings drift.json
 Output:
 
 ```text
-AgenRACI verify (github): sprout  (branch main, settings drift.json)
-  ✗ drift main: CODEOWNERS is missing accountable owner(s): @you.
-  ✗ drift main: branch protection does not require review from code owners, so the accountable owners are not actually enforced.
-  - unenforceable A5_merge_to_main: accountable role(s) reviewer have no human members; GitHub code owners must be human, so this action can't be enforced via CODEOWNERS.
+AgenRACI verify (github): sprout  (branch main, settings drift.json, snapshot: evidence about when it was exported)
+  ✗ drift A5_merge_to_main
+      - drift: stale approvals are not dismissed when new commits are pushed, so commits added after an approval can merge unreviewed.
+      - incomplete: the approver role 'reviewer' has no human members; GitHub code owners must be people, so GitHub cannot enforce this gate.
+  ✗ drift A7_incident_fix
+      - drift: stale approvals are not dismissed when new commits are pushed, so commits added after an approval can merge unreviewed.
+      - drift: a change to `ops/x` (in `/ops/`): CODEOWNERS line 1 (/ops/) lists @you, who is not an eligible approver, so @you can satisfy code-owner review.
+  - not-applicable A8_interpret_analytics (github: none)
+  - not-applicable A9_communicate_with_users (github: none)
+  - not-applicable A10_spend_money (github: none)
+Member names (or their `github` handles) are taken as GitHub logins by convention.
 
-DRIFT — 2 mismatch(es) between the charter and the live branch protection.
+DRIFT — 2 action(s) are not enforced the way the charter declares.
 ```
 
 Exit code: **1**.
 
-Two drift findings: `@you` is missing from CODEOWNERS, and the repo no longer
-requires code-owner review — meaning the accountable owners declared in the charter
-are not actually enforced by the branch protection. This is precisely the scenario
-where charter and repo have gone out of sync.
+`@you` is a real person with write access, but the charter does not let the
+orchestrator approve incident fixes, and GitHub accepts any one owner on the rule, so
+`@you` alone could approve a change under `ops/`. Each drift line names an example path
+so you can see which rule lets it through. With stale approvals kept, a commit pushed
+after the approval merges on that approval. `--allow-incomplete` never hides drift.
 
 ### Scenario 3 — could-not-check (live, no `gh`), exit 2
 
@@ -304,9 +401,10 @@ Output:
 Exit code: **2**.
 
 Exit 2 means AgenRACI could not complete the check — not that it found drift, not
-that the charter passes. The same exit code covers: `gh` not installed, `gh` not
-authenticated, the repo does not exist, or the token lacks admin permission (403/404
-from the API). **Exit 2 is never a pass or a fail.**
+that the charter passes. Could-not-check covers: `gh` not installed, `gh` not
+authenticated, or a repo that does not exist or that the token can't see. A token that
+lacks admin permission gets `incomplete` instead, naming each setting it couldn't read.
+Both exit 2. **Exit 2 is never a pass or a fail.**
 
 This is why the verify Action in CI defaults to `continue-on-error: true` when no
 admin PAT is supplied: a could-not-check exit must not turn the build red and be
@@ -316,9 +414,13 @@ misread as a charter violation.
 
 | Exit code | Meaning | Action |
 |-----------|---------|--------|
-| `0` | No drift found by the current limited comparisons | Review coverage limitations; this is not proof of all charter guarantees |
-| `1` | Drift — one or more charter requirements are not reflected in the live branch | Re-apply the compiled protection; check CODEOWNERS |
-| `2` | Could-not-check — `gh` missing, not authenticated, or insufficient permission | Supply `GH_TOKEN` with admin scope, or use `--settings` for offline check |
+| `0` | Every judged action is verified (or nothing maps to GitHub) | This holds as of the read; re-run after changes |
+| `1` | Drift — some change can merge without an approval the charter requires | Re-apply the compiled protection and CODEOWNERS; the drift lines name an example path |
+| `2` | Incomplete or could-not-check — a guarantee could not be established | Read the `incomplete` lines; supply the missing evidence or permission, or pass `--allow-incomplete` to accept an incomplete result (it never accepts could-not-check) |
+
+`--format json` gives the same result per action (`status`, `paths`,
+`eligible_approvers`, and `reasons` with a `kind`, `code` and `message`), and
+`--format sarif` reports drift as errors and incomplete lines as warnings.
 
 ---
 
@@ -338,7 +440,7 @@ in CI — is exactly what that section automates.
 AgenRACI reads what GitHub tells it and reports whether it matches the charter. It
 does not apply protection rules, does not intercept pull requests, and does not
 enforce approvals at the moment an agent acts. The verify step is a read-only
-audit: it tells you drift exists; closing the drift is a human action (re-run step
+audit: it tells you drift exists, or that it could not tell; closing the drift is a human action (re-run step
 3). Runtime interception — pausing an agent until a human approves — is a roadmap
 item (v0.3, HumanLayer connector), not a current capability. What you get today is
 an honest, automated answer to: "does the repo currently enforce what the charter

@@ -15,9 +15,13 @@
 three maintainer trials. See the [next-round plan](PLAN.md) and
 [contributor entry points](CONTRIBUTING.md#current-contribution-priorities).
 
-**Current verification limitations:** the checker compares selected protection settings
-and owner names mentioned anywhere in CODEOWNERS. Passing does not establish path-specific
-approval, the designated gate approver, or absence of bypasses. Fixes are planned, not shipped.
+**Current verification limitations:** in the latest release (v0.2.1), the checker compares
+selected protection settings and owner names mentioned anywhere in CODEOWNERS, so passing
+does not establish path-specific approval or the designated gate approver. The main branch
+now judges each gated action path by path against the designated approvers
+([contract](docs/verification-contract.md)), but it does not judge bypass permissions yet
+([#80](https://github.com/jing-ny/agenraci/issues/80)), so a live check there reports
+`incomplete`, never a pass.
 
 For decades, teams have used **RACI** — a simple chart of who is *Responsible,
 Accountable, Consulted, and Informed* for each kind of work. RACI quietly assumes
@@ -227,20 +231,22 @@ matches what the charter declares:
           charter: charter.yaml          # path to your charter
           repo: ${{ github.repository }} # OWNER/REPO (default)
           branch: main                   # protected branch (default)
+          token: ${{ secrets.ADMIN_PAT }} # default: the workflow token (see below)
+          allow-incomplete: "false"      # "true" passes an incomplete check with a warning
           python-version: "3.12"         # Python version (default)
 ```
 
 This Action runs `agenraci verify --target github` against your repo's live
-branch protection and CODEOWNERS. It exits 1 if the repo drifts from the
-charter (for example, an expected accountable owner was removed from CODEOWNERS), and
-exits 0 when its current comparisons find no drift; this does not prove every
-charter requirement is enforced. The current comparison accepts additional owners,
-but additional eligible owners can weaken a designated-approver requirement. See the
-limitations above. A gated action whose accountable
-role has no human member is reported as `unenforceable` — GitHub code owners
-must be human — neither pass nor fail.
+branch protection and CODEOWNERS. Each gated action with a `github` mapping is judged
+`verified`, `drift` or `incomplete`; one with `github: none` is listed as
+`not-applicable`. It fails on drift (for example, a CODEOWNERS rule lets someone the
+charter doesn't allow approve the action's paths) and on an incomplete check (a
+guarantee could not be established, such as a gate whose approver role has no human
+member, since GitHub code owners must be people). See the limitations above.
 
-Exit codes: `0` = clean, `1` = drift, `2` = could-not-check.
+Exit codes: `0` = verified (or nothing to verify), `1` = drift, `2` = incomplete or
+could-not-check. `allow-incomplete: "true"` turns an incomplete `2` into `0` with a
+warning; it never hides drift and never passes could-not-check.
 
 **Scope reminder.** The verify Action is read-only. It never POSTs to GitHub
 and never intercepts or enforces actions at runtime. It tells you whether
@@ -248,17 +254,12 @@ drift exists; it does not fix it.
 
 **Auth caveat.** Reading live branch protection via `gh api` requires admin
 permission on the repo. The default `GITHUB_TOKEN` usually does **not** have
-it, so an out-of-the-box run typically exits 2 (could-not-check), not 1
-(drift). To get a real drift check, supply an admin-scoped token (for example
-a PAT stored as a repository secret):
+it, so an out-of-the-box run typically exits 2 (incomplete), not 1
+(drift). To get a real drift check, pass an admin-scoped token (for example
+a PAT stored as a repository secret) in the `token` input, as in the snippet above.
 
-```yaml
-        env:
-          GH_TOKEN: ${{ secrets.ADMIN_PAT }}
-```
-
-Without that token, `continue-on-error: true` prevents a spurious could-not-check
-exit from turning the build red and being misread as a charter violation. This
+Without that token, `continue-on-error: true` prevents an exit 2 from turning the
+build red and being misread as a charter violation. This
 is exactly what AgenRACI's own dogfood `verify` job does.
 
 For a step-by-step walkthrough of the full compile → apply → verify loop (with

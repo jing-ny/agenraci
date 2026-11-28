@@ -1,5 +1,5 @@
 name: AgenRACI — verify branch protection
-description: Verifies a branch's protection against the RACI charter and fails CI on drift; never intercepts or enforces at runtime.
+description: Verifies a branch's protection against the RACI charter and fails CI on drift or an incomplete check; never intercepts or enforces at runtime.
 author: AgenRACI contributors
 branding:
   icon: shield
@@ -18,6 +18,20 @@ inputs:
     description: The protected branch the charter governs.
     required: false
     default: main
+  token:
+    description: >-
+      Token `gh api` uses to read the repo. Reading branch protection needs
+      admin access, which the default workflow token usually lacks; pass an
+      admin-scoped token (for example secrets.ADMIN_PAT) for a full check.
+    required: false
+    default: ${{ github.token }}
+  allow-incomplete:
+    description: >-
+      Set to "true" to pass (with a warning) when verification is incomplete,
+      i.e. a guarantee could not be established. Drift always fails, and so does
+      a run that could not read the repository at all.
+    required: false
+    default: "false"
   python-version:
     description: Python version to run the checker on.
     required: false
@@ -49,6 +63,9 @@ runs:
         CHARTER: ${{ inputs.charter }}
         REPO: ${{ inputs.repo }}
         BRANCH: ${{ inputs.branch }}
-        GH_TOKEN: ${{ github.token }}
+        ALLOW_INCOMPLETE: ${{ inputs.allow-incomplete }}
+        GH_TOKEN: ${{ inputs.token }}
       run: |
-        agenraci verify "$CHARTER" --target github --repo "$REPO" --branch "$BRANCH"
+        extra=()
+        if [ "$ALLOW_INCOMPLETE" = "true" ]; then extra+=(--allow-incomplete); fi
+        agenraci verify "$CHARTER" --target github --repo "$REPO" --branch "$BRANCH" "${extra[@]}"

@@ -17,15 +17,45 @@ import subprocess
 from dataclasses import dataclass, field
 
 from ..schema import Charter
-
-
-def _humans_in_role(charter: Charter, role: str) -> list[str]:
-    """Human members holding ``role`` (agents can't be GitHub code owners)."""
-    return [m.name for m in charter.members if m.role == role and m.type == "human"]
+from ..codeowners import (
+    Rule,
+    TooComplex,
+    compile_pattern,
+    find_example,
+    last_match,
+    parse_rules,
+    winning_rules,
+)
 
 
 def _handles(names: list[str]) -> str:
     return " ".join(f"@{n}" for n in names)
+
+
+def _approver_logins(charter: Charter, role: str) -> list[str]:
+    """GitHub logins (``github`` handle, else name) of the human approvers."""
+    return sorted({m.github or m.name for m in charter.members
+                   if m.role == role and m.type == "human"})
+
+
+def _overlap_notes(mapped) -> list[str]:
+    """Warn where two actions with different approvers claim the same paths."""
+    notes: list[str] = []
+    for i, (a_name, a_paths, a_who) in enumerate(mapped):
+        for b_name, b_paths, b_who in mapped[i + 1:]:
+            if set(a_who) == set(b_who):
+                continue
+            for pa in a_paths:
+                for pb in b_paths:
+                    try:
+                        ex = find_example([compile_pattern(pa), compile_pattern(pb)])
+                    except TooComplex:
+                        ex = None
+                    if ex is not None:
+                        notes.append(f"# Note: {a_name} ({pa}) and {b_name} ({pb}) "
+                                     f"overlap, e.g. `{ex}`; the later line wins "
+                                     "there, so the earlier action loses its approvers.")
+    return notes
 
 
 def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
@@ -40,17 +70,46 @@ def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
     gated = {name: a for name, a in charter.actions.items() if a.gate is not None}
 
     # --- CODEOWNERS scaffold --------------------------------------------------
+    # Each gated action's human APPROVERS (D1) own the paths in its
+    # `github.paths` (D3). GitHub applies the LAST matching rule and accepts any
+    # one owner on it, so a rule lists only approvers, and the CODEOWNERS file
+    # itself goes last, owned by people who approve every mapped action.
     out.append("# ── CODEOWNERS (starting point) ─────────────────────────────────")
-    out.append("# A charter governs action TYPES, not file paths, so scope the glob(s)")
-    out.append("# below to the parts of your repo each owner is accountable for.")
-    owners = sorted({
-        h for a in gated.values() for r in a.accountable
-        for h in _humans_in_role(charter, r)
-    })
-    if owners:
-        out.append(f"*    {_handles(owners)}")
-    else:
-        out.append("# (no human is accountable for a gated action — set owners by hand)")
+    out.append("# Each line gives a gated action's paths to its approvers. GitHub uses")
+    out.append("# the LAST rule that matches a file and accepts any one listed owner,")
+    out.append("# so keep the order and list only people allowed to approve.")
+    rule_lines: list[str] = []
+    mapped: list[tuple[str, list[str], list[str]]] = []  # (action, paths, logins)
+    wants_code_owners = False
+    for name, action in gated.items():
+        if action.github == "none":
+            continue
+        logins = _approver_logins(charter, action.gate.approver)
+        wants_code_owners = wants_code_owners or bool(logins)
+        if action.github is None:
+            out.append(f"# {name}: no `github` key. Add `github: {{paths: [...]}}` "
+                       "(or `github: none`) to scaffold its rules.")
+        elif not logins:
+            out.append(f"# {name}: approver role '{action.gate.approver}' has no "
+                       "human members, so GitHub cannot enforce this gate.")
+        else:
+            mapped.append((name, list(action.github.paths), logins))
+            for pattern in action.github.paths:
+                rule_lines.append(f"{pattern}    {_handles(logins)}")
+    out.extend(rule_lines)
+    if mapped:
+        common = set(mapped[0][2])
+        for _, _, logins in mapped[1:]:
+            common &= set(logins)
+        if common:
+            out.append(f"/.github/CODEOWNERS    {_handles(sorted(common))}")
+        else:
+            out.append("# No one approves every mapped action, so no owner of "
+                       "/.github/CODEOWNERS")
+            out.append("# can satisfy all of them; verify will report this.")
+        out.extend(_overlap_notes(mapped))
+    elif not any(a.github != "none" for a in gated.values()):
+        out.append("# (every gated action declares `github: none`; nothing to own)")
     out.append("")
 
     # --- Branch protection checklist -----------------------------------------
@@ -63,7 +122,12 @@ def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
     out.append("# In Settings → Branches → Add branch protection rule, for each action:")
     for name, action in gated.items():
         gate = action.gate
-        approvers = _humans_in_role(charter, gate.approver)
+        if action.github == "none":
+            out.append("")
+            out.append(f"# {name}: `github: none`, not a repo change; nothing to "
+                       "configure in GitHub.")
+            continue
+        approvers = _approver_logins(charter, gate.approver)
         who = (
             _handles(approvers) if approvers
             else f"role '{gate.approver}' (no human members — assign one)"
@@ -73,10 +137,12 @@ def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
         out.append(f"#   • Require a pull request before merging, approved by {who}.")
 
         if gate.on_timeout == "block":
-            out.append("#   • Do NOT enable auto-merge "
-                       "(charter on_timeout=block — never proceeds unreviewed).")
+            out.append("#   • On approver timeout, the change waits; it never merges "
+                       "unreviewed (charter on_timeout=block). Branch protection's "
+                       "required review is what makes it wait; auto-merge does not "
+                       "bypass it.")
         elif gate.on_timeout == "proceed_if_low_risk":
-            out.append("#   • Auto-merge tolerable for this action only "
+            out.append("#   • On approver timeout, may proceed without approval "
                        "(charter on_timeout=proceed_if_low_risk; it is marked low-risk).")
         elif gate.on_timeout.startswith("escalate_to:"):
             esc = gate.on_timeout.split(":", 1)[1].strip()
@@ -95,25 +161,27 @@ def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
     # apply verbatim. It is GitHub's classic branch-protection PUT body, with the
     # exact fields `agenraci verify` reads back (see verify_github /
     # _classic_facts), so the compile→apply→verify loop closes: apply this, then
-    # `agenraci verify CHARTER.yaml --repo OWNER/REPO` reports CLEAN against this charter.
+    # `agenraci verify CHARTER.yaml --repo OWNER/REPO` reports no drift against this
+    # charter (it stays incomplete until bypass evidence is read, #80).
     #
     # Derived strictly from the charter (the charter is a FLOOR, never inflated):
     #   • required_approving_review_count = 1 (the charter's minimum).
-    #   • require_code_owner_reviews = true iff a HUMAN is accountable for some
-    #     gated action; with no human accountable, code owners can't be enforced
-    #     (owners must be human) so we don't pretend they are.
-    require_code_owner_reviews = bool(owners)
+    #   • require_code_owner_reviews = true iff some gated GitHub action has a
+    #     HUMAN approver; without one, code owners can't be enforced (owners must
+    #     be human) so we don't pretend they are.
+    #   • dismiss_stale_reviews = true: otherwise commits pushed after an
+    #     approval merge on that approval, which verify reports as drift.
+    require_code_owner_reviews = wants_code_owners
     protection_body = {
         "required_status_checks": None,
         "enforce_admins": True,
         "required_pull_request_reviews": {
             "required_approving_review_count": 1,
             "require_code_owner_reviews": require_code_owner_reviews,
+            "dismiss_stale_reviews": True,
         },
         "restrictions": None,
     }
-
-    has_block_gate = any(a.gate.on_timeout == "block" for a in gated.values())
 
     out.append("")
     out.append("# ── Applyable branch protection (classic) ───────────────────────")
@@ -124,19 +192,12 @@ def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
     out.append("#")
     out.append("#   gh api repos/OWNER/REPO/branches/BRANCH/protection \\")
     out.append("#     --method PUT --input protection.json")
-    out.append("#   agenraci verify CHARTER.yaml --repo OWNER/REPO   # should report CLEAN")
+    out.append("#   agenraci verify CHARTER.yaml --repo OWNER/REPO   # should report no drift")
     if not require_code_owner_reviews:
         out.append("#")
-        out.append("# Note: no human is accountable for a gated action, so code-owner")
+        out.append("# Note: no gated action has a human approver, so code-owner")
         out.append("# review is left OFF (GitHub code owners must be human — requiring it")
         out.append("# would enforce nothing). Reviews are still required.")
-    if has_block_gate:
-        out.append("#")
-        out.append("# A gated action declares on_timeout=block, so it must never proceed")
-        out.append("# unreviewed. Auto-merge is a REPO setting (not in this PUT body) —")
-        out.append("# turn it off at the repo level:")
-        out.append("#")
-        out.append("#   gh api repos/OWNER/REPO --method PATCH -f allow_auto_merge=false")
     out.append("# --- BEGIN protection.json ---")
     out.extend(json.dumps(protection_body, indent=2).splitlines())
     out.append("# --- END protection.json ---")
@@ -145,167 +206,527 @@ def compile(charter: Charter) -> str:  # noqa: A001 - mirror CLI "compile" verb
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# verify: does a live repo actually enforce what the charter declares?
+# verify: does a repo actually enforce what the charter declares?
 #
-# AgenRACI still does not intercept anything. `verify` is read-only: it compares
-# the charter against a repo's protection settings and reports drift. The live
-# (`gh api`) and offline (committed export) paths both normalise GitHub's two
-# protection models — classic branch protection and rulesets — into one
-# ``GitHubProtection`` before comparison, so the comparison core never sees the
-# raw API shapes.
+# AgenRACI still does not intercept anything. `verify` is read-only. It follows
+# docs/verification-contract.md: for each gated action it asks "can a change
+# covered by this action reach the branch without approval from someone the
+# charter allows to approve it?" and answers verified / drift / incomplete /
+# not-applicable from observed configuration only.
 #
 #   charter ─┐
-#            ├─▶ verify_github() ─▶ VerifyReport ─▶ json / human
-#   GitHubProtection ─┘             (drift? + unenforceable + note)
+#            ├─▶ verify_github() ─▶ VerifyReport ─▶ json / human / sarif
+#   GitHubProtection ─┘             (status + one ActionResult per gated action)
 #       ▲
-#       └── parse_protection(export dict)  |  fetch_live_protection (gh api → same shape)
+#       └── parse_protection(export dict)  |  fetch_live_protection (gh api)
 #
-# Comparison model (deliberately NOT path globs — the human owns scoping):
-#   • owner-set: accountable HUMANS across gated actions ⊆ live CODEOWNERS owners
-#   • branch-protection facts: ≥1 required review, code-owner review required
-#   • strictest-wins: any gated on_timeout=block ⇒ auto-merge must be off
-#   • directionality: the charter is a FLOOR — a stricter repo PASSES (subset/≥)
-#   • agent-only-accountable actions are UNENFORCEABLE (code owners must be human),
-#     reported explicitly so a green result never means "nothing was verified".
+# Approval model (#79):
+#   • eligible approvers = the human members of the gate's `approver` role (D1);
+#   • an action is judged over its `github.paths` (D3); `github: none` is
+#     not-applicable, a missing `github` key is incomplete;
+#   • every path a change could touch is judged against the LAST matching
+#     CODEOWNERS rule, and EVERY owner GitHub would accept on that rule must be
+#     eligible (more owners is never stronger protection);
+#   • the CODEOWNERS file itself must be owned only by eligible approvers;
+#   • auto-merge is NOT a bypass (#81): GitHub auto-merge waits for required
+#     reviews and checks, so allow_auto_merge is read but never used as evidence;
+#   • anything not read, not modelled, or not yet judged (bypass, until #80) is
+#     `incomplete`, never a pass.
 # ─────────────────────────────────────────────────────────────────────────────
+
+_WRITE_PERMISSIONS = {"admin", "maintain", "write"}
+
+
+@dataclass
+class TeamFacts:
+    """What verify knows about one ``@org/team`` code owner."""
+
+    members: list[str] | None = None  # logins; None = not read
+    write: bool | None = None         # team has write access; None = not read
 
 
 @dataclass
 class GitHubProtection:
-    """Normalised protection settings for one branch.
+    """Observed protection evidence for one branch.
 
-    Both GitHub protection models (classic branch protection and rulesets) and
-    an offline export collapse to this shape before comparison.
+    Both GitHub protection models (classic branch protection and rulesets), the
+    repo's CODEOWNERS file and an offline export collapse to this shape before
+    comparison. ``None`` always means "not observed", which verify reports as
+    incomplete rather than assuming a default.
     """
 
     branch: str
-    required_reviews: int = 0
-    require_code_owner_review: bool = False
-    code_owners: list[str] = field(default_factory=list)  # @-stripped handles
-    allow_auto_merge: bool = False
+    required_reviews: int | None = None
+    require_code_owner_review: bool | None = None
+    dismiss_stale_reviews: bool | None = None
+    codeowners: str | None = None           # raw file text
+    codeowners_found: bool | None = None    # False = no CODEOWNERS file at all
+    codeowners_path: str | None = None      # where GitHub reads it from
+    codeowners_errors: list[dict] | None = None
+    owner_permissions: dict[str, bool] | None = None  # login (lower) -> has write
+    teams: dict[str, TeamFacts] | None = None         # "org/team" (lower) -> facts
+    enforce_admins: bool | None = None      # True also when there is no classic rule
+    bypass_actors: list | None = None
+    allow_auto_merge: bool = False          # read, never used as evidence (#81)
+    code_owners: list[str] = field(default_factory=list)  # legacy owner list
+    evidence: str = "snapshot"              # "live" | "snapshot"
 
 
 @dataclass
 class VerifyFinding:
-    target: str  # an action name, or the branch
-    kind: str  # "drift" | "unenforceable"
+    target: str  # an action name
+    kind: str    # "drift" | "unenforceable"
     message: str
+
+
+@dataclass
+class Reason:
+    kind: str     # "drift" | "incomplete"
+    code: str     # stable machine-readable reason
+    message: str
+
+
+@dataclass
+class ActionResult:
+    action: str
+    status: str   # "verified" | "drift" | "incomplete" | "not-applicable"
+    paths: list[str]
+    eligible_approvers: list[str]
+    reasons: list[Reason]
 
 
 @dataclass
 class VerifyReport:
     project: str
     branch: str
-    ok: bool
-    findings: list[VerifyFinding]  # drift only — these flip ok to False
-    unenforceable: list[VerifyFinding]
+    ok: bool                         # deprecated: no drift
+    findings: list[VerifyFinding]    # drift reasons (deprecated shape)
+    unenforceable: list[VerifyFinding]  # deprecated alias of no-human-approver
     note: str | None = None
+    status: str = "nothing-to-verify"
+    evidence: str = "snapshot"
+    actions: list[ActionResult] = field(default_factory=list)
+
+
+def _opt_bool(data: dict, key: str) -> bool | None:
+    """A JSON boolean, or None (missing evidence). Anything else is rejected."""
+    value = data.get(key)
+    if value is None or isinstance(value, bool):
+        return value
+    raise ValueError(f"`{key}` must be true, false or null, got {value!r}")
+
+
+def _has_write(value) -> bool | None:
+    """True/False for a stated access level, None when it is unknown (null)."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in _WRITE_PERMISSIONS
+    raise ValueError(f"an access level must be true, false or a role name, got {value!r}")
+
+
+def _opt_str(data: dict, key: str) -> str | None:
+    value = data.get(key)
+    if value is None or isinstance(value, str):
+        return value
+    raise ValueError(f"`{key}` must be a string or null, got {value!r}")
 
 
 def parse_protection(data: dict, *, branch: str = "main") -> GitHubProtection:
-    """Build a ``GitHubProtection`` from a normalised export dict.
+    """Build a ``GitHubProtection`` from an offline export.
 
-    The offline (`--settings`) input uses this documented shape::
+    Every field must be stated: an absent field is missing evidence, never a
+    default. The documented shape::
 
-        {"branch": "main", "required_reviews": 1,
+        {"branch": "main",
+         "required_reviews": 1,
          "require_code_owner_review": true,
-         "code_owners": ["alice", "bob"], "allow_auto_merge": false}
+         "dismiss_stale_reviews": true,
+         "codeowners": "* @alice\\n",          # raw text; null = no file
+         "codeowners_path": ".github/CODEOWNERS",
+         "codeowners_errors": [],
+         "owner_permissions": {"alice": "write"},
+         "teams": {"org/release": {"members": ["alice"], "permission": "write"}},
+         "enforce_admins": true,               # null = no classic protection
+         "bypass_actors": [],
+         "allow_auto_merge": false}
 
-    Parsing GitHub's raw classic-protection and ruleset API shapes into this
-    normalised form (for live mode and real exports) lands in the next increment.
+    The older shape with only ``code_owners`` (a list of names) still loads, but
+    a list of names cannot show which rule applies to which path, so verify
+    reports the CODEOWNERS evidence as missing.
     """
-    owners = [str(o).lstrip("@") for o in data.get("code_owners", [])]
+    teams = None
+    if data.get("teams") is not None:
+        if not isinstance(data["teams"], dict):
+            raise ValueError("`teams` must be an object of team name -> facts")
+        teams = {}
+        for name, facts in data["teams"].items():
+            facts = facts or {}
+            if not isinstance(facts, dict):
+                raise ValueError(f"`teams.{name}` must be an object")
+            members = facts.get("members")
+            if members is not None and not isinstance(members, list):
+                raise ValueError(f"`teams.{name}.members` must be a list")
+            teams[str(name).lstrip("@").lower()] = TeamFacts(
+                members=[str(m).lstrip("@") for m in members]
+                if members is not None else None,
+                write=_has_write(facts.get("permission")),
+            )
+    perms = None
+    if data.get("owner_permissions") is not None:
+        if not isinstance(data["owner_permissions"], dict):
+            raise ValueError("`owner_permissions` must be an object of login -> access")
+        perms = {}
+        for k, v in data["owner_permissions"].items():
+            access = _has_write(v)
+            if access is not None:  # null = unknown, so leave the owner unread
+                perms[str(k).lstrip("@").lower()] = access
+    if "codeowners" in data:
+        text = _opt_str(data, "codeowners")
+        found = text is not None
+    else:
+        text, found = None, None
+    reviews = data.get("required_reviews")
+    if reviews is not None and (isinstance(reviews, bool) or not isinstance(reviews, int)):
+        raise ValueError(f"`required_reviews` must be a whole number or null, got {reviews!r}")
+    for key in ("codeowners_errors", "bypass_actors", "code_owners"):
+        if data.get(key) is not None and not isinstance(data[key], list):
+            raise ValueError(f"`{key}` must be a list or null")
+    enforce_admins = None
+    if "enforce_admins" in data:
+        enforce_admins = (True if data["enforce_admins"] is None
+                          else _opt_bool(data, "enforce_admins"))
+    errors = data.get("codeowners_errors")
+    bypass = data.get("bypass_actors")
     return GitHubProtection(
         branch=str(data.get("branch", branch)),
-        required_reviews=int(data.get("required_reviews", 0)),
-        require_code_owner_review=bool(data.get("require_code_owner_review", False)),
-        code_owners=owners,
-        allow_auto_merge=bool(data.get("allow_auto_merge", False)),
+        required_reviews=reviews,
+        require_code_owner_review=_opt_bool(data, "require_code_owner_review"),
+        dismiss_stale_reviews=_opt_bool(data, "dismiss_stale_reviews"),
+        codeowners=str(text) if text is not None else None,
+        codeowners_found=found,
+        codeowners_path=_opt_str(data, "codeowners_path"),
+        codeowners_errors=([e if isinstance(e, dict) else {"line": e} for e in errors]
+                           if isinstance(errors, list) else None),
+        owner_permissions=perms,
+        teams=teams,
+        enforce_admins=enforce_admins,
+        bypass_actors=list(bypass) if isinstance(bypass, list) else None,
+        allow_auto_merge=bool(_opt_bool(data, "allow_auto_merge")),
+        code_owners=[str(o).lstrip("@") for o in data.get("code_owners", [])],
+        evidence="snapshot",
     )
+
+
+def _login(member) -> str:
+    return (member.github or member.name).lower()
+
+
+def _eligible(charter: Charter, role: str) -> list[str]:
+    """Logins of the human members of ``role`` (D1: the gate's approver role)."""
+    return sorted({_login(m) for m in charter.members
+                   if m.role == role and m.type == "human"})
+
+
+def _judge_owners(rule: Rule, eligible: set[str], prot: GitHubProtection,
+                  where: str) -> list[Reason]:
+    """Can only eligible approvers satisfy code-owner review on ``rule``?"""
+    loc = f"CODEOWNERS line {rule.line} ({rule.pattern})"
+    if not rule.owners:
+        return [Reason("drift", "no-owner",
+                       f"{where}: {loc} lists no owners, so code-owner review "
+                       "asks nobody.")]
+    drift: list[Reason] = []
+    unsure: list[Reason] = []
+    effective = 0
+    for tok in rule.owners:
+        if not tok.startswith("@"):
+            unsure.append(Reason("incomplete", "unresolved-owner",
+                                 f"{loc} lists {tok}, an email owner verify cannot "
+                                 "resolve to a GitHub login."))
+            continue
+        name = tok[1:].lower()
+        if "/" in name:  # team
+            facts = (prot.teams or {}).get(name)
+            if facts is None or facts.write is None or (
+                    facts.write and facts.members is None):
+                unsure.append(Reason("incomplete", "unresolved-owner",
+                                     f"{loc} lists team {tok}, whose members or "
+                                     "access could not be read."))
+                continue
+            if not facts.write:
+                continue  # GitHub ignores an owner without write access
+            for member in facts.members:
+                effective += 1
+                if member.lower() not in eligible:
+                    drift.append(Reason("drift", "ineligible-owner",
+                                        f"{where}: {loc} lists team {tok}, and its "
+                                        f"member @{member} is not an eligible "
+                                        "approver, so they can satisfy code-owner "
+                                        "review."))
+            continue
+        if prot.owner_permissions is None or name not in prot.owner_permissions:
+            unsure.append(Reason("incomplete", "unresolved-owner",
+                                 f"{loc} lists {tok}, whose write access could not "
+                                 "be read."))
+            continue
+        if not prot.owner_permissions[name]:
+            continue  # ignored by GitHub
+        effective += 1
+        if name not in eligible:
+            drift.append(Reason("drift", "ineligible-owner",
+                                f"{where}: {loc} lists {tok}, who is not an eligible "
+                                f"approver, so {tok} can satisfy code-owner review."))
+    if drift:
+        return drift
+    if unsure:
+        return unsure
+    if effective == 0:
+        return [Reason("drift", "no-effective-owner",
+                       f"{where}: no owner on {loc} has write access, so GitHub "
+                       "ignores them and the path has no code owner.")]
+    return []
+
+
+def _branch_reasons(prot: GitHubProtection, rules: list[Rule]) -> list[Reason]:
+    """Facts that apply to every judged action alike."""
+    out: list[Reason] = []
+    if prot.required_reviews is None:
+        out.append(Reason("incomplete", "evidence-missing",
+                          "required approving reviews were not observed."))
+    elif prot.required_reviews < 1:
+        out.append(Reason("drift", "no-required-review",
+                          "the branch requires no approving review."))
+    if prot.require_code_owner_review is None:
+        out.append(Reason("incomplete", "evidence-missing",
+                          "whether code-owner review is required was not observed."))
+    elif not prot.require_code_owner_review:
+        out.append(Reason("drift", "no-code-owner-review",
+                          "the branch does not require review from code owners, so "
+                          "CODEOWNERS does not decide who approves."))
+    if prot.dismiss_stale_reviews is None:
+        out.append(Reason("incomplete", "evidence-missing",
+                          "whether stale approvals are dismissed on new commits was "
+                          "not observed."))
+    elif not prot.dismiss_stale_reviews:
+        out.append(Reason("drift", "no-stale-dismissal",
+                          "stale approvals are not dismissed when new commits are "
+                          "pushed, so commits added after an approval can merge "
+                          "unreviewed."))
+    if prot.codeowners_found is False:
+        out.append(Reason("drift", "no-codeowners-file",
+                          "the repo has no CODEOWNERS file, so code-owner review "
+                          "enforces nothing."))
+    elif prot.codeowners_found is None or prot.codeowners is None:
+        hint = (" The export lists owner names only; add the raw `codeowners` "
+                "text so rule order can be judged." if prot.code_owners else "")
+        out.append(Reason("incomplete", "evidence-missing",
+                          "the CODEOWNERS file was not observed." + hint))
+    else:
+        bad = [r for r in rules if r.unsupported]
+        for r in bad:
+            out.append(Reason("incomplete", "unsupported-pattern",
+                              f"CODEOWNERS line {r.line} could not be modelled: "
+                              f"{r.unsupported}."))
+    if prot.enforce_admins is None or prot.bypass_actors is None:
+        out.append(Reason("incomplete", "bypass-unchecked",
+                          "who can bypass the review requirement was not read "
+                          "(bypass evidence lands with #80)."))
+    elif prot.enforce_admins is False or prot.bypass_actors:
+        out.append(Reason("incomplete", "bypass-not-judged",
+                          "the branch has bypass actors or admins are not enforced; "
+                          "judging them lands with #80."))
+    return out
+
+
+def _codeowners_reasons(name: str, action, eligible: set[str],
+                        prot: GitHubProtection, rules: list[Rule]) -> list[Reason]:
+    """Judge every path the action covers against the last matching rule."""
+    supported = [r for r in rules if r.nfa is not None]
+    out: list[Reason] = []
+    seen: set[tuple] = set()
+    too_complex = False
+    for pattern in action.github.paths:
+        p_nfa = compile_pattern(pattern)
+        # Only the rules that would be a problem, and "no rule", need an
+        # example; the search can stop once none of them can win.
+        wanted = {None} | {k for k, rule in enumerate(supported)
+                           if _judge_owners(rule, eligible, prot, "")}
+        try:
+            winners = winning_rules(p_nfa, [r.nfa for r in supported], wanted)
+        except TooComplex as exc:
+            # Keep what was proved before the search gave up: a problem found
+            # is still a problem.
+            winners = exc.found
+            too_complex = True
+        # A path no rule matches has no code owner at all.
+        ex = winners.pop(None, None)
+        if ex is not None and ("none",) not in seen:
+            seen.add(("none",))
+            out.append(Reason("drift", "no-owner",
+                              f"no CODEOWNERS rule covers `{ex}` (in `{pattern}`), "
+                              "so a change there needs no code-owner approval."))
+        for k in sorted(winners):
+            if ("rule", k) in seen:
+                continue
+            seen.add(("rule", k))
+            out.extend(_judge_owners(supported[k], eligible, prot,
+                                     f"a change to `{winners[k]}` (in `{pattern}`)"))
+    if too_complex:
+        out.append(Reason("incomplete", "too-complex",
+                          "the CODEOWNERS rules were too complex to judge exactly."))
+
+    # The CODEOWNERS file itself: whoever owns it can approve ownership changes.
+    # So can whoever owns a location GitHub reads first, by adding a file there.
+    own_paths = _codeowners_own_paths(prot.codeowners_path)
+    if own_paths is None:
+        out.append(Reason("incomplete", "evidence-missing",
+                          "where the CODEOWNERS file lives was not observed, so its "
+                          "own owners could not be judged."))
+    for path in own_paths or []:
+        rule = last_match(supported, path)
+        if path == own_paths[-1]:
+            where = f"the CODEOWNERS file `{path}`"
+            consequence = "so anyone with write access can change who owns what."
+        else:
+            where = (f"`{path}`, which GitHub would use instead of "
+                     f"`{own_paths[-1]}` if someone added it")
+            consequence = "so anyone with write access can add one and take ownership."
+        if rule is None:
+            out.append(Reason("drift", "no-owner",
+                              f"no CODEOWNERS rule covers {where}, {consequence}"))
+        else:
+            out.extend(_judge_owners(rule, eligible, prot, where))
+    errors = prot.codeowners_errors
+    if errors is None:
+        out.append(Reason("incomplete", "evidence-missing",
+                          "GitHub's CODEOWNERS error list was not read."))
+    else:
+        by_line = {r.line: r for r in rules}
+        for err in errors:
+            line = err.get("line")
+            rule = by_line.get(line)
+            relevant = (rule is None or rule.nfa is None
+                        or any(_safe_overlap(p, rule) for p in action.github.paths)
+                        or any(rule.nfa.matches(p) for p in own_paths or []))
+            if relevant:
+                out.append(Reason("incomplete", "codeowners-errors",
+                                  f"GitHub reports an error on CODEOWNERS line "
+                                  f"{line}: {err.get('message') or err.get('kind') or 'invalid'}"
+                                  ". GitHub skips invalid lines."))
+    return out
+
+
+def _codeowners_own_paths(path: str | None) -> list[str] | None:
+    """The CODEOWNERS file's path, after every location GitHub reads before it."""
+    if path is None:
+        return None
+    path = path.lstrip("/")
+    earlier = (list(_CODEOWNERS_PATHS[:_CODEOWNERS_PATHS.index(path)])
+               if path in _CODEOWNERS_PATHS else [])
+    return earlier + [path]
+
+
+def _safe_overlap(pattern: str, rule: Rule) -> bool:
+    try:
+        return find_example([compile_pattern(pattern), rule.nfa]) is not None
+    except TooComplex:
+        return True
+
+
+def _status(reasons: list[Reason]) -> str:
+    if any(r.kind == "drift" for r in reasons):
+        return "drift"
+    if reasons:
+        return "incomplete"
+    return "verified"
 
 
 def verify_github(
     charter: Charter, protection: GitHubProtection, *, branch: str = "main"
 ) -> VerifyReport:
-    """Compare a charter against a branch's live protection. Read-only."""
+    """Judge every gated action against observed protection. Read-only."""
     gated = {n: a for n, a in charter.actions.items() if a.gate is not None}
+    evidence = protection.evidence
     if not gated:
         return VerifyReport(
             project=charter.project, branch=branch, ok=True, findings=[],
-            unenforceable=[],
+            unenforceable=[], status="nothing-to-verify", evidence=evidence,
             note="No action declares a gate, so nothing requires enforcement.",
         )
 
-    drift: list[VerifyFinding] = []
-    unenforceable: list[VerifyFinding] = []
-
-    # Expected owners = accountable humans across gated actions. A gated action
-    # whose accountable role(s) have no human member is unenforceable (code
-    # owners must be human), surfaced explicitly — never silently skipped.
-    expected: set[str] = set()
+    rules = parse_rules(protection.codeowners) if protection.codeowners else []
+    branch_reasons = _branch_reasons(protection, rules)
+    results: list[ActionResult] = []
     for name, action in gated.items():
-        humans = {h for r in action.accountable for h in _humans_in_role(charter, r)}
-        if humans:
-            expected.update(humans)
-        else:
-            unenforceable.append(VerifyFinding(
-                name, "unenforceable",
-                f"accountable role(s) {', '.join(action.accountable)} have no human "
-                "members; GitHub code owners must be human, so this action can't be "
-                "enforced via CODEOWNERS.",
-            ))
+        eligible = _eligible(charter, action.gate.approver)
+        mapping = action.github
+        if mapping == "none":
+            results.append(ActionResult(name, "not-applicable", [], eligible, []))
+            continue
+        if mapping is None:
+            reasons = [Reason("incomplete", "no-github-mapping",
+                              "the action has no `github` key, so verify cannot tell "
+                              "which paths it covers. Add `github: {paths: [...]}`, "
+                              "or `github: none` if it is not a GitHub change.")]
+            if not eligible:
+                reasons.append(_no_human(action))
+            results.append(ActionResult(name, "incomplete", [], eligible, reasons))
+            continue
+        reasons = list(branch_reasons)
+        if not eligible:
+            reasons.append(_no_human(action))
+        elif protection.codeowners_found and protection.codeowners is not None:
+            reasons.extend(_codeowners_reasons(
+                name, action, set(eligible), protection, rules))
+        unique: list[Reason] = []
+        for r in reasons:
+            if all(r.message != u.message for u in unique):
+                unique.append(r)
+        results.append(ActionResult(name, _status(unique), list(mapping.paths),
+                                    eligible, unique))
 
-    actual = set(protection.code_owners)
-    missing = sorted(expected - actual)  # subset check: a repo may have MORE owners
-    if missing:
-        drift.append(VerifyFinding(
-            branch, "drift",
-            "CODEOWNERS is missing accountable owner(s): "
-            + ", ".join(f"@{m}" for m in missing) + ".",
-        ))
-
-    if protection.required_reviews < 1:
-        drift.append(VerifyFinding(
-            branch, "drift",
-            "branch protection requires no approving review; the charter's gated "
-            "actions need at least one.",
-        ))
-
-    if expected and not protection.require_code_owner_review:
-        drift.append(VerifyFinding(
-            branch, "drift",
-            "branch protection does not require review from code owners, so the "
-            "accountable owners are not actually enforced.",
-        ))
-
-    if protection.allow_auto_merge and any(
-        a.gate.on_timeout == "block" for a in gated.values()
-    ):
-        drift.append(VerifyFinding(
-            branch, "drift",
-            "auto-merge is enabled but a gated action declares on_timeout=block "
-            "(it must never proceed unreviewed).",
-        ))
-
+    judged = [r for r in results if r.status != "not-applicable"]
+    if not judged:
+        status = "nothing-to-verify"
+        note = "Every gated action declares `github: none`, so nothing was verified."
+    else:
+        status = ("drift" if any(r.status == "drift" for r in judged) else
+                  "incomplete" if any(r.status == "incomplete" for r in judged) else
+                  "verified")
+        note = None
+    findings = [VerifyFinding(r.action, "drift", x.message)
+                for r in results for x in r.reasons if x.kind == "drift"]
+    unenforceable = [VerifyFinding(r.action, "unenforceable", x.message)
+                     for r in results for x in r.reasons if x.code == "no-human-approver"]
     return VerifyReport(
-        project=charter.project, branch=branch, ok=not drift,
-        findings=drift, unenforceable=unenforceable, note=None,
+        project=charter.project, branch=branch, ok=not findings, findings=findings,
+        unenforceable=unenforceable, note=note, status=status, evidence=evidence,
+        actions=results,
     )
 
 
+def _no_human(action) -> Reason:
+    return Reason("incomplete", "no-human-approver",
+                  f"the approver role {action.gate.approver!r} has no human members; "
+                  "GitHub code owners must be people, so GitHub cannot enforce this "
+                  "gate.")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# Live mode: read a repo's real protection via `gh api`, normalise into a
-# GitHubProtection, and hand it to verify_github. GitHub exposes protection two
-# ways — classic branch protection and rulesets (which can also come from the
-# org) — so we read BOTH and take the union (max reviews, OR code-owner-review).
-# A 404 on the classic-protection endpoint means "no classic protection", not an
-# error; a repo-level 404/401/403 or a missing `gh` means we COULD NOT CHECK
-# (distinct from drift — never a pass, never a fail).
+# Live mode: read a repo's real protection via `gh api` and normalise it into a
+# GitHubProtection. Classic branch protection and rulesets are read and unioned
+# (max reviews, OR code-owner review, OR stale dismissal). A 404 on the
+# classic-protection endpoint means "no classic protection"; a repo-level
+# 404/401/403 or a missing `gh` means we COULD NOT CHECK. Supporting evidence
+# (CODEOWNERS errors, owner and team access) that can't be read is left as None,
+# which verify reports as incomplete for the actions that need it.
 #
 #   gh api  ─▶ _classic_facts ┐
 #           ─▶ _ruleset_facts ┼─▶ protection_from_github ─▶ GitHubProtection
-#           ─▶ repo.allow_auto_merge ┘        ▲
-#           ─▶ CODEOWNERS file ──▶ parse_codeowners ┘
+#           ─▶ CODEOWNERS + errors + owner/team access ┘
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -318,18 +739,16 @@ class CouldNotCheck(Exception):
 
 
 _OWNER_RE = re.compile(r"@([A-Za-z0-9][A-Za-z0-9/_.-]*)")
+# GitHub reads the first of these that exists.
 _CODEOWNERS_PATHS = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")
+_MAX_OWNER_LOOKUPS = 50
 
 
 def parse_codeowners(text: str) -> list[str]:
     """Owners mentioned anywhere in a CODEOWNERS file, ``@`` stripped.
 
-    We deliberately do NOT model path globs (the human owns scoping), so this
-    returns the union of every owner across all rules. ``@org/team`` entries come
-    back as ``org/team`` and email owners (``user@example.com``) as the domain —
-    neither matches an individual human name, a known limitation when a repo
-    scopes ownership to teams or emails (harmless to the subset check: a spurious
-    extra owner never causes drift).
+    Legacy helper: verify no longer uses this union of owners (it ignores which
+    rule wins, #79); it judges rules with ``codeowners.parse_rules`` instead.
     """
     owners: set[str] = set()
     for raw in text.splitlines():
@@ -339,24 +758,30 @@ def parse_codeowners(text: str) -> list[str]:
     return sorted(owners)
 
 
-def _classic_facts(protection: dict | None) -> tuple[int, bool]:
+def _classic_facts(protection: dict | None) -> tuple[int, bool, bool] | None:
+    if protection is _UNREAD:
+        return None
     if not protection:
-        return (0, False)
+        return (0, False, False)
     rpr = protection.get("required_pull_request_reviews") or {}
     return (
         int(rpr.get("required_approving_review_count", 0) or 0),
         bool(rpr.get("require_code_owner_reviews", False)),
+        bool(rpr.get("dismiss_stale_reviews", False)),
     )
 
 
-def _ruleset_facts(rules: list | None) -> tuple[int, bool]:
-    count, code_owner = 0, False
+def _ruleset_facts(rules: list | None) -> tuple[int, bool, bool] | None:
+    if rules is _UNREAD:
+        return None
+    count, code_owner, dismiss = 0, False, False
     for rule in rules or []:
         if rule.get("type") == "pull_request":
             params = rule.get("parameters") or {}
             count = max(count, int(params.get("required_approving_review_count", 0) or 0))
             code_owner = code_owner or bool(params.get("require_code_owner_review", False))
-    return (count, code_owner)
+            dismiss = dismiss or bool(params.get("dismiss_stale_reviews_on_push", False))
+    return (count, code_owner, dismiss)
 
 
 def protection_from_github(
@@ -366,21 +791,51 @@ def protection_from_github(
     rules: list | None = None,
     repo: dict | None = None,
     codeowners: str | None = None,
+    codeowners_found: bool | None = None,
+    codeowners_path: str | None = None,
+    codeowners_errors: list[dict] | None = None,
+    owner_permissions: dict[str, bool] | None = None,
+    teams: dict[str, TeamFacts] | None = None,
 ) -> GitHubProtection:
     """Normalise GitHub's raw API shapes into one GitHubProtection.
 
-    classic + rulesets are unioned: required reviews = max, code-owner review =
-    either. ``allow_auto_merge`` is a repo setting; ``code_owners`` come from the
-    CODEOWNERS file. Any source may be ``None`` (contributes its default).
+    classic + rulesets are unioned: required reviews = max, code-owner review and
+    stale dismissal = either. Pass ``_UNREAD`` for a source that could not be
+    read: a fact the other source already establishes still counts, anything
+    else becomes unknown (incomplete). ``allow_auto_merge`` is read from the repo
+    but not used as evidence (#81). Bypass evidence is not read yet (#80), so it
+    stays None (incomplete).
     """
-    c_count, c_co = _classic_facts(protection)
-    r_count, r_co = _ruleset_facts(rules)
+    sources = [f for f in (_classic_facts(protection), _ruleset_facts(rules))
+               if f is not None]
+    unread = len(sources) < 2
+
+    def count() -> int | None:
+        best = max((f[0] for f in sources), default=0)
+        return best if best >= 1 or not unread else None
+
+    def either(i: int) -> bool | None:
+        if any(f[i] for f in sources):
+            return True
+        return None if unread else False
+
+    found = True if codeowners is not None else codeowners_found
     return GitHubProtection(
         branch=branch,
-        required_reviews=max(c_count, r_count),
-        require_code_owner_review=(c_co or r_co),
-        code_owners=parse_codeowners(codeowners) if codeowners else [],
+        required_reviews=count(),
+        require_code_owner_review=either(1),
+        dismiss_stale_reviews=either(2),
+        codeowners=codeowners,
+        codeowners_found=found,
+        codeowners_path=codeowners_path,
+        codeowners_errors=codeowners_errors,
+        owner_permissions=owner_permissions,
+        teams=teams,
+        enforce_admins=None,
+        bypass_actors=None,
         allow_auto_merge=bool((repo or {}).get("allow_auto_merge", False)),
+        code_owners=parse_codeowners(codeowners) if codeowners else [],
+        evidence="live",
     )
 
 
@@ -395,9 +850,12 @@ def _default_runner(argv: list[str]) -> tuple[int, str, str]:
     return (p.returncode, p.stdout, p.stderr)
 
 
-def _gh_api(runner, path: str, *, allow_404: bool = False):
+def _gh_api(runner, path: str, *, allow_404: bool = False, accept: str | None = None):
     """Call ``gh api <path>``; parse JSON. ``allow_404`` returns None on 404."""
-    rc, out, err = runner(["gh", "api", path])
+    argv = ["gh", "api"]
+    if accept:
+        argv += ["-H", f"Accept: {accept}"]
+    rc, out, err = runner(argv + [path])
     if rc == 0:
         try:
             return json.loads(out) if out.strip() else None
@@ -412,34 +870,152 @@ def _gh_api(runner, path: str, *, allow_404: bool = False):
     raise CouldNotCheck(f"gh api {path}: {err.strip().splitlines()[0] if err.strip() else 'failed'}")
 
 
-def _fetch_codeowners(runner, repo: str, branch: str) -> str | None:
-    """Return the first CODEOWNERS file found among the standard locations."""
+_UNREAD = object()
+
+
+def _try_gh(runner, path: str, **kw):
+    """Like ``_gh_api`` but returns ``_UNREAD`` instead of raising."""
+    try:
+        return _gh_api(runner, path, **kw)
+    except CouldNotCheck:
+        return _UNREAD
+
+
+def _read_classic(runner, repo: str, branch: str):
+    """Classic protection JSON, None for "Branch not protected", else ``_UNREAD``.
+
+    GitHub can answer 404 where it means "not allowed", so only its explicit
+    "Branch not protected" 404 counts as evidence of no classic protection.
+    """
+    path = f"repos/{repo}/branches/{branch}/protection"
+    rc, out, err = runner(["gh", "api", path])
+    if rc == 0:
+        try:
+            obj = json.loads(out) if out.strip() else None
+        except json.JSONDecodeError:
+            return _UNREAD
+        return obj if isinstance(obj, dict) else _UNREAD
+    if "branch not protected" in f"{out}\n{err}".lower():
+        return None
+    return _UNREAD
+
+
+def _fetch_codeowners(runner, repo: str, branch: str):
+    """``(path, text)`` of the CODEOWNERS file GitHub uses.
+
+    ``(None, None)`` when none exists, ``(None, _UNREAD)`` when a location could
+    not be read before a file was found (so which file GitHub uses is unknown).
+    """
     for path in _CODEOWNERS_PATHS:
-        obj = _gh_api(runner, f"repos/{repo}/contents/{path}?ref={branch}", allow_404=True)
-        if obj and obj.get("encoding") == "base64" and obj.get("content"):
-            return base64.b64decode(obj["content"]).decode("utf-8", "replace")
-    return None
+        obj = _try_gh(runner, f"repos/{repo}/contents/{path}?ref={branch}",
+                      allow_404=True)
+        if obj is _UNREAD:
+            return None, _UNREAD
+        if not isinstance(obj, dict) or obj.get("type", "file") != "file":
+            continue  # nothing there (or a directory, which GitHub ignores)
+        # GitHub uses the first location that holds a file, even an empty one.
+        content = obj.get("content") or ""
+        if obj.get("encoding") == "base64":
+            return path, base64.b64decode(content).decode("utf-8", "replace")
+        if not content and obj.get("size") == 0:
+            return path, ""
+        return None, _UNREAD  # e.g. a file over 1 MB ("encoding": "none")
+    return None, None
+
+
+def _owner_access(runner, repo: str, text: str):
+    """Read write access for user owners and membership/access for team owners."""
+    users: list[str] = []
+    team_names: list[str] = []
+    for rule in parse_rules(text):
+        for tok in rule.owners:
+            if not tok.startswith("@"):
+                continue
+            name = tok[1:].lower()
+            bucket = team_names if "/" in name else users
+            if name not in bucket:
+                bucket.append(name)
+    perms: dict[str, bool] = {}
+    for user in users[:_MAX_OWNER_LOOKUPS]:
+        obj = _try_gh(runner, f"repos/{repo}/collaborators/{user}/permission",
+                      allow_404=True)
+        if not isinstance(obj, dict):
+            # Unreadable, or a 404, which GitHub also returns for a user it won't
+            # show: unknown, so verify reports it as incomplete.
+            continue
+        role = str(obj.get("role_name") or "").lower()
+        perms[user] = (str(obj.get("permission") or "").lower() in _WRITE_PERMISSIONS
+                       or role in _WRITE_PERMISSIONS)
+    owner, repo_name = repo.split("/", 1)
+    teams: dict[str, TeamFacts] = {}
+    for team in team_names[:_MAX_OWNER_LOOKUPS]:
+        org, slug = team.split("/", 1)
+        facts = TeamFacts()
+        teams[team] = facts
+        # A 404 can mean "a team this token can't see", so the team itself must
+        # be readable before a 404 on its repo access counts as "no access".
+        if not isinstance(_try_gh(runner, f"orgs/{org}/teams/{slug}"), dict):
+            continue
+        access = _try_gh(runner, f"orgs/{org}/teams/{slug}/repos/{owner}/{repo_name}",
+                         allow_404=True, accept="application/vnd.github.v3.repository+json")
+        if access is None:
+            facts.write = False
+        elif isinstance(access, dict):
+            p = access.get("permissions") or {}
+            facts.write = bool(p.get("admin") or p.get("maintain") or p.get("push"))
+        members = _try_gh(runner, f"orgs/{org}/teams/{slug}/members?per_page=100")
+        if isinstance(members, list) and len(members) < 100:
+            facts.members = [m["login"] for m in members
+                             if isinstance(m, dict) and m.get("login")]
+    return perms, teams
 
 
 def fetch_live_protection(repo: str, branch: str, *, runner=None) -> GitHubProtection:
     """Read a repo's live protection via ``gh api`` and normalise it.
 
-    Raises CouldNotCheck on any inability to read (no gh, auth, bad repo). A
-    missing classic-protection rule or missing CODEOWNERS is NOT an error — it
-    just contributes nothing (and likely shows up as drift, which is correct).
+    Raises CouldNotCheck when the repo or its protection can't be read (no gh,
+    auth, bad repo). A missing classic-protection rule or missing CODEOWNERS is
+    NOT an error: it is evidence (and likely drift). Supporting evidence that
+    can't be read stays None and makes the affected actions incomplete.
     """
-    runner = runner or _default_runner
+    try:
+        return _fetch_live(repo, branch, runner or _default_runner)
+    except CouldNotCheck:
+        raise
+    except Exception as exc:  # noqa: BLE001 - an API shape we didn't expect
+        raise CouldNotCheck(f"unexpected response from GitHub for {repo}: "
+                            f"{type(exc).__name__}: {exc}") from exc
+
+
+def _fetch_live(repo: str, branch: str, runner) -> GitHubProtection:
     # repos/{repo} first: a 404/403 here is a real "couldn't check" (bad repo or
     # no access), not the benign "no protection configured" 404 below.
     repo_obj = _gh_api(runner, f"repos/{repo}")
-    protection = _gh_api(
-        runner, f"repos/{repo}/branches/{branch}/protection", allow_404=True)
-    rules = _gh_api(
-        runner, f"repos/{repo}/rules/branches/{branch}", allow_404=True) or []
-    codeowners = _fetch_codeowners(runner, repo, branch)
+    if not isinstance(repo_obj, dict):
+        raise CouldNotCheck(f"unexpected response from GitHub for {repo}.")
+    protection = _read_classic(runner, repo, branch)
+    rules = _try_gh(runner, f"repos/{repo}/rules/branches/{branch}?per_page=100")
+    if rules is None:
+        rules = []
+    elif not isinstance(rules, list) or len(rules) >= 100:
+        rules = _UNREAD  # unexpected shape, or more rules than one page shows
+    path, codeowners = _fetch_codeowners(runner, repo, branch)
+    found: bool | None = codeowners is not None
+    if codeowners is _UNREAD:
+        codeowners, found = None, None
+    errors = None
+    perms = teams = None
+    if codeowners is not None:
+        obj = _try_gh(runner, f"repos/{repo}/codeowners/errors?ref={branch}",
+                      allow_404=True)
+        if isinstance(obj, dict) and isinstance(obj.get("errors"), list):
+            errors = obj["errors"]
+        perms, teams = _owner_access(runner, repo, codeowners)
     return protection_from_github(
-        branch=branch, protection=protection, rules=rules,
-        repo=repo_obj, codeowners=codeowners,
+        branch=branch, protection=protection, rules=rules, repo=repo_obj,
+        codeowners=codeowners, codeowners_found=found,
+        codeowners_path=path, codeowners_errors=errors,
+        owner_permissions=perms, teams=teams,
     )
 
 
@@ -447,15 +1023,17 @@ def fetch_live_protection(repo: str, branch: str, *, runner=None) -> GitHubProte
 # Org sweep: run verify across every repo in an org against one charter, and
 # aggregate. The killer governance-audit scenario — "does every repo in our org
 # enforce our accountability rules?". One repo that can't be read is isolated
-# (reported could-not-check) so it never crashes the sweep; the overall result
-# fails only on actual drift.
+# (reported could-not-check) so it never crashes the sweep. The sweep's status
+# is the worst repo status (drift > incomplete/could-not-check > verified), and a
+# truncated listing makes it at least incomplete.
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 @dataclass
 class RepoResult:
     repo: str
-    status: str  # "clean" | "drift" | "could-not-check"
+    # "verified" | "drift" | "incomplete" | "nothing-to-verify" | "could-not-check"
+    status: str
     report: VerifyReport | None = None
     error: str | None = None
 
@@ -465,8 +1043,9 @@ class OrgSweepReport:
     org: str
     branch: str
     results: list[RepoResult]
-    ok: bool  # True if no repo drifted (could-not-check does not flip ok)
+    ok: bool  # deprecated: True if no repo drifted
     truncated: bool = False  # the org has MORE repos than the listing limit
+    status: str = "nothing-to-verify"  # worst repo status, see sweep_status
 
 
 def _list_org_repos(org: str, *, runner, limit: int = 1000) -> list[str]:
@@ -506,10 +1085,22 @@ def sweep_org(
             results.append(RepoResult(repo, "could-not-check", error=str(exc)))
             continue
         report = verify_github(charter, protection, branch=branch)
-        if report.ok:
-            results.append(RepoResult(repo, "clean", report=report))
-        else:
-            any_drift = True
-            results.append(RepoResult(repo, "drift", report=report))
+        any_drift = any_drift or not report.ok
+        results.append(RepoResult(repo, report.status, report=report))
     return OrgSweepReport(org=org, branch=branch, results=results,
-                          ok=not any_drift, truncated=truncated)
+                          ok=not any_drift, truncated=truncated,
+                          status=sweep_status(results, truncated))
+
+
+def sweep_status(results: list[RepoResult], truncated: bool) -> str:
+    """Worst repo status; a truncated listing is never better than incomplete."""
+    statuses = {r.status for r in results}
+    if "drift" in statuses:
+        return "drift"
+    if statuses == {"could-not-check"}:
+        return "could-not-check"  # no repo could be read at all
+    if truncated or statuses & {"incomplete", "could-not-check"}:
+        return "incomplete"
+    if "verified" in statuses:
+        return "verified"
+    return "nothing-to-verify"

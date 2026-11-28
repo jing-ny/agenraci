@@ -83,7 +83,7 @@ actions:
       as:   merge_blocker
     gate:
       approver: reviewer
-      on_timeout: block                # never auto-merges
+      on_timeout: block                # never proceeds unapproved
       break_glass: { who: orchestrator, condition: maintainer_override, requires_after_review: true }
 
   A6_update_docs:

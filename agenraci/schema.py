@@ -22,9 +22,11 @@ Design notes (v0.1):
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .codeowners import UnsupportedPattern, pattern_ast
 
 # The special ``responsible`` value meaning "any member may carry this out".
 ANY = "any"
@@ -72,6 +74,20 @@ class Member(BaseModel):
     type: str  # "human" | "agent"
     role: str
     model: Optional[str] = None  # e.g. claude-opus-4-8 (agents only)
+    # The member's GitHub login, when it differs from ``name``. ``verify`` treats
+    # it (or else ``name``) as a GitHub login by convention; it is not proof of
+    # identity.
+    github: Optional[str] = None
+
+    @field_validator("github")
+    @classmethod
+    def _check_github(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.strip().lstrip("@")
+        if not v or "/" in v or any(c.isspace() for c in v):
+            raise ValueError(f"github must be a single GitHub login, got {v!r}")
+        return v
 
     @field_validator("type")
     @classmethod
@@ -147,6 +163,29 @@ class SuggestionRoute(BaseModel):
     as_: str = Field(alias="as")
 
 
+class GitHubMapping(BaseModel):
+    """Which repository paths an action's changes cover (``github.paths``).
+
+    Patterns use CODEOWNERS syntax. ``verify --target github`` judges the
+    action over these paths; ``github: none`` says the action is not a GitHub
+    change at all.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    paths: list[str] = Field(min_length=1)
+
+    @field_validator("paths")
+    @classmethod
+    def _check_paths(cls, v: list[str]) -> list[str]:
+        for p in v:
+            try:
+                pattern_ast(p)
+            except UnsupportedPattern as exc:
+                raise ValueError(f"github.paths: {exc}") from exc
+        return v
+
+
 class Action(BaseModel):
     """One TYPE of action that can occur in the project, with its RACI + gate.
 
@@ -165,6 +204,10 @@ class Action(BaseModel):
     low_risk: bool = False
     gate: Optional[Gate] = None
     suggestion_route: Optional[SuggestionRoute] = None
+    # GitHub mapping for ``verify --target github``: ``{paths: [...]}``, or the
+    # string ``none`` for an action that is not a GitHub change. Omitted means
+    # unknown, which verify reports as incomplete rather than guessing.
+    github: Union[Literal["none"], GitHubMapping, None] = None
 
     @field_validator("accountable", mode="before")
     @classmethod

@@ -1,9 +1,10 @@
 # GitHub verification contract
 
-Status: **accepted by the maintainer, not yet implemented** (issue #78). Revised after an
-independent review. Today's `agenraci verify --target github` behaves as described in
-[SPEC.md §8](../SPEC.md#8-adapters); this document defines what it *should* claim once
-#79, #80 and #81 land. The decisions in §9 are settled; implementation follows them.
+Status: **accepted by the maintainer** (issue #78) and **implemented on main except §4**
+(bypass evidence, #80). #79 (approval and scope) and #81 (auto-merge) follow it. Until
+#80 lands, bypass is never judged: a live run does not read it and reports `incomplete`,
+and an offline export that lists any bypass is `incomplete`. "Today" in this document
+means the v0.2.1 release, before these changes. The decisions in §9 are settled.
 
 ## 1. The question verify answers
 
@@ -54,13 +55,17 @@ Precedence when several facts apply to one action: `drift` beats `incomplete` be
 
 ### What `verified` requires
 
-**Scope.** An action's scope is every file in the branch tree (read with
-`repos/{repo}/git/trees/{branch}?recursive=1`) that matches a pattern in
-`github.paths`. Each file is judged against the **last** CODEOWNERS rule that matches
-it. Because a pull request can add files, each pattern in `github.paths` is also judged
-as if a new file were added there: if a later CODEOWNERS rule could take such a file
-away from the eligible approvers, that is `drift`; if verify cannot decide, it is
-`incomplete`. A truncated tree listing makes the action `incomplete`.
+**Scope.** An action's scope is every file path that matches a pattern in
+`github.paths`, whether the file exists on the branch or a pull request could add it.
+Each path is judged against the **last** CODEOWNERS rule that matches it. Verify does
+not list the branch's files: it treats each pattern as the set of paths it can match
+and searches that set exactly, so for each CODEOWNERS rule it can tell whether some
+in-scope path ends up owned by that rule, and names the shortest such path in the
+output. A rule that applies only to paths no file would ever have cannot cause drift.
+If the search would grow too large, or a pattern uses syntax verify does not model,
+the action is `incomplete`. (An earlier draft read the branch tree with
+`repos/{repo}/git/trees/{branch}?recursive=1`; judging the patterns covers the same
+files plus the ones a pull request could add, without a truncated-listing case.)
 
 All of these, for every file in scope:
 
@@ -70,7 +75,8 @@ All of these, for every file in scope:
 3. The branch dismisses stale approvals when new commits are pushed (classic
    `dismiss_stale_reviews`, ruleset `dismiss_stale_reviews_on_push`). Without it, commits
    pushed after an eligible approval can merge unreviewed, so it is `drift`.
-   `require_last_push_approval` is recorded in the output but not required.
+   `require_last_push_approval` is not required. (Recording it in the output is
+   planned; the first release does not read it yet.)
 4. The CODEOWNERS rule that applies to the file is the **last matching** rule, and it
    lists at least one owner.
 5. **Every** owner listed on that rule is an eligible approver. GitHub accepts approval
@@ -86,7 +92,11 @@ All of these, for every file in scope:
    (`repos/{repo}/codeowners/errors?ref={branch}`). GitHub skips invalid lines, so an error there is
    `incomplete`, as is an error list that could not be read.
 9. The CODEOWNERS file itself is owned only by eligible approvers. Otherwise an
-   ineligible owner of that file can approve a change to ownership (`drift`).
+   ineligible owner of that file can approve a change to ownership (`drift`). The same
+   holds for every location GitHub reads before it (`.github/CODEOWNERS`, then
+   `CODEOWNERS`, then `docs/CODEOWNERS`): a file added there would replace the current
+   one, so a path there with no eligible owner is `drift` too. An error GitHub reports
+   on the rule that owns any of these paths is `incomplete`, as in item 8.
 10. Bypass evidence was read and shows no one outside the allowed set can skip the
     requirement (see §4).
 
@@ -146,7 +156,7 @@ cannot be bypassed by that actor.
 | One control unreadable (for example classic protection 403, ruleset bypass list omitted) | the actions that depend on it are `incomplete`, naming the control |
 | Classic protection 404 with the message "Branch not protected" (or `branches/{branch}` reports `protected: false`) | no classic protection (benign). Any other 404 on that endpoint is treated as unreadable (`incomplete`), because GitHub can return 404 where it means "not allowed". Today any 404 counts as benign. |
 | No CODEOWNERS file | `drift` for every judged action, since code-owner review then enforces nothing |
-| Offline `--settings` export | each field must be stated; an **absent** field is missing evidence (`incomplete`), not a default of `0`/`false`. New fields: `codeowners` (the raw file text, so precedence can be evaluated), `codeowners_errors`, `files` (the branch's file list, for scope), `dismiss_stale_reviews`, `owner_permissions`, `enforce_admins`, `bypass_actors`. |
+| Offline `--settings` export | each field must be stated; an **absent** field is missing evidence (`incomplete`), not a default of `0`/`false`. New fields: `codeowners` (the raw file text, so precedence can be evaluated; `null` means no file), `codeowners_path` (where it lives, so its own owners can be judged), `codeowners_errors`, `dismiss_stale_reviews`, `owner_permissions`, `teams` (members and access of team owners), `enforce_admins`, `bypass_actors`. No file list is needed, since scope comes from the patterns (§3). |
 | Snapshot vs live | output always says which one it used; a snapshot is evidence about the moment it was taken |
 
 ## 6. Output and compatibility
@@ -167,8 +177,10 @@ Proposed, for single-repo, offline and org runs alike:
 | `1` | any action, or any repo in a sweep, is `drift` |
 | `2` | no drift, but something is `incomplete` or `could-not-check` |
 
-`--allow-incomplete` turns exit `2` into `0` and prints a warning; it never hides drift
-(D2). `not-applicable` actions never change the exit code.
+`--allow-incomplete` turns an `incomplete` exit `2` into `0` and prints a warning; it
+never hides drift (D2), and it never passes `could-not-check`, where nothing could be
+read at all (a single repo that couldn't be read, or a sweep in which no repo could).
+`not-applicable` actions never change the exit code.
 
 ### JSON
 
@@ -191,9 +203,9 @@ docs should tell teams to upgrade before adding the fields.
 
 ### GitHub Action
 
-Propagates the exit code unchanged. The Action needs a new `token` input (default
-`${{ github.token }}`) passed through as `GH_TOKEN`, because today `verify/action.yml`
-sets `GH_TOKEN` itself and a caller cannot supply an admin-scoped token. The same
+Propagates the exit code unchanged. The Action has a `token` input (default
+`${{ github.token }}`) passed through as `GH_TOKEN`, so a caller can supply an
+admin-scoped token, and an `allow-incomplete` input that passes `--allow-incomplete`. The same
 applies to this repo's own `charter.yml` workflow, whose comment suggests granting a
 token. With the default token, branch protection and bypass lists are usually
 unreadable, so the expected result is exit `2` with the unreadable controls named.
@@ -229,7 +241,7 @@ says so.
 | 6 | Accountable Carol, approver Alice, `* @carol` | pass | `drift`: Carol is not an eligible approver |
 | 7 | `* @alice @org/release`, team members unreadable | pass (team ignored) | `incomplete` |
 | 8 | Accountable and approver roles have only agent members | `unenforceable`, exit 0 | `incomplete` (reason `no-human-approver`) |
-| 9 | Auto-merge on, gate `on_timeout: block` | drift (#81) | `verified` |
+| 9 | Auto-merge on, gate `on_timeout: block` | drift before #81, pass after | `verified` |
 | 10 | Required reviews 0, auto-merge on | drift | `drift` |
 | 11 | Ruleset bypass actor: repository admin role, admins are not break-glass holders | pass | `drift` |
 | 12 | Ruleset bypass actor is the break-glass holder | pass | `verified`, bypass listed with the D4 caveat |
